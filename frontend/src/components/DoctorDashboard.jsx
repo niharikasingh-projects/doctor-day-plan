@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import ClinicManager from './ClinicManager';
 import AppointmentList from './AppointmentList';
 import LiveQueue from './LiveQueue';
@@ -40,58 +40,56 @@ function DoctorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
+    <div className="app-shell">
+      <header className="app-header flex items-center justify-between gap-5">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">DoctorDayPlan — Doctor Dashboard</h1>
-          {doctorName && <p className="text-sm text-gray-500">Dr. {doctorName}</p>}
+          <Link to="/" className="brand-mark text-lg font-bold no-underline">
+            DoctorDayPlan
+          </Link>
+          <p className="text-xs text-gray-500 mt-1">Practice command center {doctorName && `· Dr. ${doctorName}`}</p>
         </div>
-        <div className="flex items-center gap-4">
-          <nav className="flex gap-2">
+        <div className="flex items-center gap-4 flex-wrap justify-end">
+          <nav className="tab-strip">
             <button
               type="button"
               onClick={() => setActiveTab('clinics')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'clinics' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'clinics' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'clinics' ? 'is-active' : ''}`}
             >
               Clinics
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('appointments')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'appointments' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'appointments' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'appointments' ? 'is-active' : ''}`}
             >
               Appointments
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('queue')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'queue' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'queue' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'queue' ? 'is-active' : ''}`}
             >
               Live Queue
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('records')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'records' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'records' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'records' ? 'is-active' : ''}`}
             >
               Patient Records
             </button>
           </nav>
-          <button type="button" onClick={handleLogout} className="text-sm font-medium text-red-600 hover:underline">
+          <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
             Logout
           </button>
         </div>
       </header>
 
-      <main>
+      <main className="dashboard-main">
         {activeTab === 'clinics' && <ClinicManager />}
         {activeTab === 'appointments' && <AppointmentList role="doctor" />}
         {activeTab === 'records' && <PatientRecords />}

@@ -163,13 +163,17 @@ function ClinicManager() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="dashboard-main">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">My Clinics</h1>
+        <div>
+          <p className="eyebrow mb-2">Practice locations</p>
+          <h1 className="text-3xl font-bold text-gray-900">My clinics</h1>
+          <p className="text-sm text-gray-500 mt-1">Keep locations, schedules, and availability in one place.</p>
+        </div>
         <button
           type="button"
           onClick={() => setIsModalOpen(true)}
-          className="rounded-lg bg-blue-600 text-white px-4 py-2 font-medium hover:bg-blue-700"
+          className="primary-action"
         >
           + Add Clinic
         </button>
@@ -183,7 +187,7 @@ function ClinicManager() {
         <div className="flex flex-wrap gap-4">
           {clinics.length === 0 && <p className="text-gray-500">No clinics yet. Add your first clinic.</p>}
           {clinics.map((clinic) => (
-            <div key={clinic._id} className="w-full sm:w-72 bg-white rounded-xl shadow p-4 border border-gray-100">
+            <div key={clinic._id} className="surface w-full sm:w-80 p-5">
               {(() => {
                 const availability = getClinicAvailability(clinic);
                 return (
@@ -227,8 +231,10 @@ function ClinicManager() {
         </div>
       )}
 
-      <div className="mt-10 bg-white rounded-xl shadow p-6 max-w-md">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Mark Unavailable Date</h2>
+      <div className="surface mt-10 p-6 max-w-md">
+        <p className="eyebrow mb-2">Time away</p>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Mark unavailable date</h2>
+        <p className="text-sm text-gray-500 mb-4">Patients will not see slots for this date.</p>
         <form onSubmit={handleUnavailableSubmit} className="space-y-3">
           <input
             type="date"
@@ -247,7 +253,7 @@ function ClinicManager() {
           {unavailableStatus && <p className="text-sm text-gray-600">{unavailableStatus}</p>}
           <button
             type="submit"
-            className="w-full rounded-lg bg-gray-800 text-white py-2 font-medium hover:bg-gray-900"
+            className="primary-action w-full"
           >
             Save
           </button>

@@ -6,11 +6,23 @@ import PatientDashboard from './components/PatientDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import { QueueProvider } from './context/QueueContext';
 
+function HomeRedirect() {
+  const role = localStorage.getItem('role');
+  const token = localStorage.getItem('token');
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Navigate to={role === 'doctor' ? '/doctor/dashboard' : '/patient/dashboard'} replace />;
+}
+
 function App() {
   return (
     <QueueProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<HomeRedirect />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route

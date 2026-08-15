@@ -25,9 +25,14 @@ function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm bg-white rounded-xl shadow-md p-8">
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6 text-center">DoctorDayPlan Login</h1>
+    <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="surface w-full max-w-md p-8 md:p-10">
+        <Link to="/" className="brand-mark text-xl font-bold mb-10 no-underline">
+          DoctorDayPlan
+        </Link>
+        <p className="eyebrow mb-2">Welcome back</p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Sign in to your care space</h1>
+        <p className="text-sm text-gray-500 mb-7">Your appointments, records, and care team in one calm place.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -59,7 +64,7 @@ function Login() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-lg bg-blue-600 text-white py-2 font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="primary-action w-full disabled:opacity-50"
           >
             {isSubmitting ? 'Logging in...' : 'Log In'}
           </button>

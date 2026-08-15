@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Calendar from './Calendar';
 import SlotSelector from './SlotSelector';
 import AppointmentList from './AppointmentList';
@@ -67,7 +67,7 @@ function PatientDashboard() {
 
   const [selectedDate, setSelectedDate] = useState('');
   const [slots, setSlots] = useState([]);
-  const [bookedSlots, setBookedSlots] = useState([]);
+  const [disabledSlots, setDisabledSlots] = useState([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState('');
   const [status, setStatus] = useState('');
@@ -137,7 +137,7 @@ function PatientDashboard() {
       try {
         const data = await fetchAvailableSlots(selectedClinicId, selectedDate);
         setSlots(data.allSlots || data.slots || []);
-        setBookedSlots(data.bookedSlots || []);
+        setDisabledSlots(data.disabledSlots || data.bookedSlots || []);
       } catch (err) {
         setStatus(err.response?.data?.error || 'Unable to refresh slot availability.');
       }
@@ -155,7 +155,7 @@ function PatientDashboard() {
     setSelectedClinicId(event.target.value);
     setSelectedDate('');
     setSlots([]);
-    setBookedSlots([]);
+    setDisabledSlots([]);
     setSelectedSlot('');
   };
 
@@ -164,7 +164,7 @@ function PatientDashboard() {
     setSelectedClinicId('');
     setSelectedDate('');
     setSlots([]);
-    setBookedSlots([]);
+    setDisabledSlots([]);
     setSelectedSlot('');
   };
 
@@ -175,7 +175,7 @@ function PatientDashboard() {
   const changeMonth = (delta) => {
     setSelectedDate('');
     setSlots([]);
-    setBookedSlots([]);
+    setDisabledSlots([]);
     setSelectedSlot('');
     setCalendarMonth((prevMonth) => {
       let nextMonth = prevMonth + delta;
@@ -195,13 +195,13 @@ function PatientDashboard() {
   const handleSelectDate = async (dateKey) => {
     setSelectedDate(dateKey);
     setSelectedSlot('');
-    setBookedSlots([]);
+    setDisabledSlots([]);
     setStatus('');
     setIsLoadingSlots(true);
     try {
       const data = await fetchAvailableSlots(selectedClinicId, dateKey);
       setSlots(data.allSlots || data.slots || []);
-      setBookedSlots(data.bookedSlots || []);
+      setDisabledSlots(data.disabledSlots || data.bookedSlots || []);
     } catch (err) {
       setStatus(err.response?.data?.error || 'Unable to fetch slots.');
     } finally {
@@ -230,45 +230,55 @@ function PatientDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
+    <div className="app-shell">
+      <header className="app-header flex items-center justify-between gap-5">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">DoctorDayPlan — Patient Dashboard</h1>
-          {patientName && <p className="text-sm text-gray-500">{patientName}</p>}
+          <Link to="/" className="brand-mark text-lg font-bold no-underline">
+            DoctorDayPlan
+          </Link>
+          <p className="text-xs text-gray-500 mt-1">Your care journey {patientName && `· ${patientName}`}</p>
         </div>
         <div className="flex items-center gap-3">
-          <nav className="flex gap-2">
+          <nav className="tab-strip">
             <button
               type="button"
               onClick={() => setActiveTab('booking')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'booking' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'booking' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'booking' ? 'is-active' : ''}`}
             >
               Book Appointment
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('bookings')}
+              aria-current={activeTab === 'bookings' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'bookings' ? 'is-active' : ''}`}
+            >
+              My Bookings
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('history')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                activeTab === 'history' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              aria-current={activeTab === 'history' ? 'page' : undefined}
+              className={`tab-button ${activeTab === 'history' ? 'is-active' : ''}`}
             >
               My Medical History
             </button>
           </nav>
-          <button type="button" onClick={handleLogout} className="text-sm font-medium text-red-600 hover:underline">
+          <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
             Logout
           </button>
         </div>
       </header>
 
-      <main className="p-6 max-w-4xl mx-auto space-y-8">
-        {activeTab === 'booking' && <section className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Book an Appointment</h2>
+      <main className="dashboard-main space-y-8">
+        {activeTab === 'booking' && <section className="surface p-6 md:p-8">
+          <p className="eyebrow mb-2">Find your next visit</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Book an appointment</h2>
+          <p className="text-sm text-gray-500 mb-6">Choose a city, clinic, and date to see live availability.</p>
 
-          <div className="flex flex-wrap gap-4 mb-4">
-            <div>
+          <div className="booking-fields mb-6">
+            <div className="field-group">
               <label htmlFor="citySelect" className="block text-sm font-medium text-gray-700 mb-1">
                 City
               </label>
@@ -290,8 +300,10 @@ function PatientDashboard() {
               </select>
             </div>
 
-            <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
-              <span className="block">Clinic</span>
+            <div className="field-group">
+              <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
+                Clinic
+              </label>
               <select
                 id="clinicSelect"
                 required
@@ -316,7 +328,7 @@ function PatientDashboard() {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           </div>
 
           {selectedClinicId && (
@@ -344,16 +356,16 @@ function PatientDashboard() {
                     </h3>
                     <SlotSelector
                       slots={slots}
-                      disabledSlots={bookedSlots}
+                      disabledSlots={disabledSlots}
                       selectedSlot={selectedSlot}
                       onSelectSlot={setSelectedSlot}
                     />
 
                     {selectedSlot && (
-                      <button
+                        <button
                         type="button"
                         onClick={handleBook}
-                        className="mt-4 rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
+                          className="primary-action mt-4"
                       >
                         Book {selectedSlot}
                       </button>
@@ -376,7 +388,7 @@ function PatientDashboard() {
           />
         )}
 
-        {activeTab === 'booking' && (
+        {activeTab === 'bookings' && (
           <AppointmentList key={refreshKey} role="patient" onRefresh={() => setRefreshKey((prev) => prev + 1)} />
         )}
         {activeTab === 'history' && (
