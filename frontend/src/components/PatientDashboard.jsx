@@ -5,9 +5,11 @@ import SlotSelector from './SlotSelector';
 import AppointmentList from './AppointmentList';
 import LiveQueue from './LiveQueue';
 import MedicalHistory from './MedicalHistory';
+import ProfilePanel from './ProfilePanel';
 import { fetchAvailableSlots, fetchAllClinics, fetchMonthlyAvailability } from '../api/clinicService';
 import { bookAppointment, fetchMyAppointments } from '../api/appointmentService';
 import { logout } from '../api/authService';
+import { useQueueContext } from '../context/QueueContext';
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`;
 const INDIAN_CITIES = [
@@ -73,6 +75,7 @@ function PatientDashboard() {
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
+  const { emergencyNotice, setEmergencyNotice } = useQueueContext();
 
   useEffect(() => {
     const loadActiveAppointment = async () => {
@@ -264,6 +267,9 @@ function PatientDashboard() {
             >
               My Medical History
             </button>
+            <button type="button" onClick={() => setActiveTab('profile')} aria-current={activeTab === 'profile' ? 'page' : undefined} className={`tab-button ${activeTab === 'profile' ? 'is-active' : ''}`}>
+              Profile
+            </button>
           </nav>
           <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
             Logout
@@ -272,6 +278,19 @@ function PatientDashboard() {
       </header>
 
       <main className="dashboard-main space-y-8">
+        {emergencyNotice && (
+          <div className="surface border-l-4 border-red-500 p-5" role="alert">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="eyebrow text-red-700 mb-1">Urgent appointment update</p>
+                <p className="font-semibold text-gray-900">Your doctor is unavailable.</p>
+                <p className="text-sm text-gray-600 mt-1">{emergencyNotice}</p>
+                <p className="text-sm text-gray-600 mt-1">Please choose another available slot from Book Appointment.</p>
+              </div>
+              <button type="button" onClick={() => setEmergencyNotice('')} className="text-sm font-bold text-gray-500 hover:text-gray-900">Dismiss</button>
+            </div>
+          </div>
+        )}
         {activeTab === 'booking' && <section className="surface p-6 md:p-8">
           <p className="eyebrow mb-2">Find your next visit</p>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Book an appointment</h2>
@@ -394,6 +413,7 @@ function PatientDashboard() {
         {activeTab === 'history' && (
           <MedicalHistory patientId={localStorage.getItem('userId')} title="My Medical History" />
         )}
+        {activeTab === 'profile' && <ProfilePanel />}
       </main>
     </div>
   );

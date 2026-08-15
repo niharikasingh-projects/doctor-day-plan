@@ -256,6 +256,7 @@ npm run test
 * Doctors can view today's appointments (`GET /api/appointments/today`) or all current/future appointments (`GET /api/appointments/upcoming`); patients view their own booking history (`GET /api/appointments/my`).
 * `AppointmentList.jsx` renders both role-specific views. A doctor can open a confirmed appointment in the consultation workspace.
 * `pending`, `confirmed`, and `completed` appointments reserve a clinic/date/time slot. `cancelled` and `rejected` appointments release that slot, and the Patient Dashboard refreshes availability after booking or cancellation.
+* Doctors can trigger an emergency cancellation (`POST /api/appointments/emergency`). After confirmation, only today's pending and confirmed appointments are cancelled with the doctor's message, affected patients receive a Socket.io `doctorEmergency` notice, and cancelled patients are removed from live queues. Future, completed, rejected, and already-cancelled appointments are preserved.
 
 ### Module 4 — Live Queue & Real-Time Updates
 * Socket.io uses the same HTTP server as Express. Queue state is maintained in memory per clinic room and is broadcast through `queueUpdated`.
@@ -276,6 +277,13 @@ npm run test
 * The frontend production build passes with Vite.
 * Focused diagnostics pass for the new patient history and records-search components.
 * The full ESLint run still reports older hook/style findings in existing queue, calendar, clinic, appointment, and socket-context files; these do not prevent the production build.
+* High-priority backend integration tests now cover patient registration/password hashing/JWT login, inactive-account rejection, and duplicate appointment-slot prevention. Run them from `backend/` with `npm.cmd test`.
+* Mongoose 9 update operations use `returnDocument: 'after'` instead of the deprecated `new: true` option, so the backend starts without those deprecation warnings.
+
+### High-Priority Completion Notes
+* Authenticated profile read/update endpoints are available at `GET/PATCH /api/auth/profile`; doctor profiles include editable slot duration and average consultation duration, and inactive accounts cannot log in.
+* Doctors can reschedule pending or confirmed appointments with `PATCH /api/appointments/:id/reschedule`; conflicts are rejected and patient cancellation is limited to appointments that have not yet been confirmed.
+* Live queues recover checked-in confirmed appointments from MongoDB when a clinic room is joined, and repeated check-in requests do not create duplicate queue entries.
 
 > **Current queue limitation:** live queue state is intentionally in memory. Restarting the backend clears active queue state, while appointment and consultation records remain in MongoDB. Individual day slots now reflect active `pending`, `confirmed`, and `completed` appointments as disabled; `cancelled` and `rejected` appointments release their slot and make it available again after the selected date is refreshed.
 

@@ -71,7 +71,7 @@ const updateClinic = async (req, res) => {
     const clinic = await Clinic.findOneAndUpdate(
       { _id: clinicId, doctorId: req.user.userId },
       { $set: updates },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!clinic) {
@@ -92,7 +92,7 @@ const deleteClinic = async (req, res) => {
     const clinic = await Clinic.findOneAndUpdate(
       { _id: clinicId, doctorId: req.user.userId },
       { $set: { status: 'inactive' } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!clinic) {
@@ -118,7 +118,7 @@ const addUnavailableDate = async (req, res) => {
     const user = await User.findOneAndUpdate(
       { _id: req.user.userId, role: 'doctor' },
       { $push: { 'doctorProfile.unavailableDates': { date, reason } } },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!user) {

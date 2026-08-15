@@ -1,7 +1,7 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const { getIO } = require('../sockets/ioInstance');
-const { addPatientToQueue } = require('../sockets/queueHandler');
+const { addPatientToQueue, removeAppointmentsFromQueues } = require('../sockets/queueHandler');
 
 // POST /api/appointments (Patient only) — books a new appointment slot.
 const createAppointment = async (req, res) => {
@@ -35,6 +35,57 @@ const createAppointment = async (req, res) => {
   }
 };
 
+// POST /api/appointments/emergency (Doctor only) — cancels today's active appointments.
+const triggerDoctorEmergency = async (req, res) => {
+  try {
+    const reason = String(req.body.reason || 'Doctor emergency: the doctor is unavailable today. Please reschedule your appointment.').trim();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const appointments = await Appointment.find({
+      doctorId: req.user.userId,
+      appointmentDate: { $gte: startOfToday, $lte: endOfToday },
+      status: { $in: ['pending', 'confirmed'] },
+    }).select('_id patientId clinicId appointmentDate slotTime');
+
+    if (appointments.length === 0) {
+      return res.status(200).json({ message: 'No active appointments required cancellation.', cancelledCount: 0 });
+    }
+
+    const appointmentIds = appointments.map((appointment) => appointment._id);
+    await Appointment.updateMany(
+      { _id: { $in: appointmentIds } },
+      { $set: { status: 'cancelled', cancelReason: reason, checkedInAt: null } }
+    );
+
+    const io = getIO();
+    if (io) {
+      removeAppointmentsFromQueues(io, appointments);
+      const patientIds = [...new Set(appointments.map((appointment) => String(appointment.patientId)))];
+      patientIds.forEach((patientId) => {
+        io.to(`user:${patientId}`).emit('doctorEmergency', {
+          message: reason,
+          doctorId: String(req.user.userId),
+          appointmentIds: appointments
+            .filter((appointment) => String(appointment.patientId) === patientId)
+            .map((appointment) => String(appointment._id)),
+        });
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Patients have been notified and active appointments were cancelled.',
+      cancelledCount: appointments.length,
+      reason,
+    });
+  } catch (error) {
+    console.error('triggerDoctorEmergency error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 // PATCH /api/appointments/:id/status (Doctor/Patient) — transitions an appointment's status.
 const updateStatus = async (req, res) => {
   try {
@@ -58,6 +109,9 @@ const updateStatus = async (req, res) => {
       if (status !== 'cancelled') {
         return res.status(400).json({ error: 'Patients may only cancel appointments.' });
       }
+      if (appointment.status !== 'pending') {
+        return res.status(400).json({ error: 'Patients may cancel appointments only before confirmation.' });
+      }
       if (!cancelReason) {
         return res.status(400).json({ error: 'cancelReason is required when cancelling an appointment.' });
       }
@@ -79,6 +133,46 @@ const updateStatus = async (req, res) => {
   }
 };
 
+// PATCH /api/appointments/:id/reschedule (Doctor only) — moves an appointment to a free slot.
+const rescheduleAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { appointmentDate, slotTime } = req.body;
+    if (!appointmentDate || !slotTime) {
+      return res.status(400).json({ error: 'appointmentDate and slotTime are required.' });
+    }
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) return res.status(404).json({ error: 'Appointment not found.' });
+    if (String(appointment.doctorId) !== String(req.user.userId)) {
+      return res.status(403).json({ error: 'You do not have permission to reschedule this appointment.' });
+    }
+    if (['cancelled', 'rejected', 'completed'].includes(appointment.status)) {
+      return res.status(400).json({ error: 'This appointment cannot be rescheduled.' });
+    }
+
+    const conflict = await Appointment.findOne({
+      _id: { $ne: id },
+      clinicId: appointment.clinicId,
+      appointmentDate,
+      slotTime,
+      status: { $nin: ['cancelled', 'rejected'] },
+    });
+    if (conflict) return res.status(400).json({ error: 'This appointment slot is already booked.' });
+
+    appointment.appointmentDate = appointmentDate;
+    appointment.slotTime = slotTime;
+    appointment.status = 'pending';
+    appointment.checkedInAt = null;
+    await appointment.save();
+    return res.status(200).json(appointment);
+  } catch (error) {
+    console.error('rescheduleAppointment error:', error);
+    if (error.code === 11000) return res.status(400).json({ error: 'This appointment slot is already booked.' });
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 // PATCH /api/appointments/:id/checkin (Patient only) — marks the patient as checked in.
 const patientCheckIn = async (req, res) => {
   try {
@@ -95,6 +189,10 @@ const patientCheckIn = async (req, res) => {
 
     if (!['pending', 'confirmed'].includes(appointment.status)) {
       return res.status(400).json({ error: 'Only pending or confirmed appointments can be checked in.' });
+    }
+
+    if (appointment.checkedInAt) {
+      return res.status(200).json(appointment);
     }
 
     appointment.status = 'confirmed';
@@ -192,7 +290,9 @@ const getMyAppointments = async (req, res) => {
 
 module.exports = {
   createAppointment,
+  triggerDoctorEmergency,
   updateStatus,
+  rescheduleAppointment,
   patientCheckIn,
   getTodayAppointments,
   getUpcomingAppointments,

@@ -10,6 +10,7 @@ export function QueueProvider({ children }) {
   const [liveQueue, setLiveQueue] = useState([]);
   const [currentPatient, setCurrentPatient] = useState(null);
   const [estimatedWaitTime, setEstimatedWaitTime] = useState(0);
+  const [emergencyNotice, setEmergencyNotice] = useState('');
   const [isConnecting, setIsConnecting] = useState(true);
 
   useEffect(() => {
@@ -22,10 +23,14 @@ export function QueueProvider({ children }) {
       setLiveQueue(payload?.waitingQueueArray || []);
       setEstimatedWaitTime(payload?.estimatedWaitTime || 0);
     };
+    const handleDoctorEmergency = (payload) => setEmergencyNotice(payload?.message || 'Your doctor is unavailable. Please reschedule your appointment.');
 
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
     newSocket.on('queueUpdated', handleQueueUpdated);
+    newSocket.on('doctorEmergency', handleDoctorEmergency);
+    const userId = localStorage.getItem('userId');
+    if (userId) newSocket.emit('joinUserRoom', { userId });
 
     setSocket(newSocket);
 
@@ -33,11 +38,12 @@ export function QueueProvider({ children }) {
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('queueUpdated', handleQueueUpdated);
+      newSocket.off('doctorEmergency', handleDoctorEmergency);
       newSocket.disconnect();
     };
   }, []);
 
-  const value = { socket, liveQueue, currentPatient, estimatedWaitTime, isConnecting };
+  const value = { socket, liveQueue, currentPatient, estimatedWaitTime, emergencyNotice, setEmergencyNotice, isConnecting };
 
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;
 }

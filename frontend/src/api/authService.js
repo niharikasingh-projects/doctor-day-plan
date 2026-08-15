@@ -36,6 +36,19 @@ export const registerDoctor = async (payload) => {
   return data;
 };
 
+export const getProfile = async () => {
+  const { data } = await axiosInstance.get('/auth/profile');
+  return data;
+};
+
+export const updateProfile = async (payload) => {
+  const { data } = await axiosInstance.patch('/auth/profile', payload);
+  if (data?.doctorProfile?.name || data?.patientProfile?.name) {
+    localStorage.setItem('name', data.doctorProfile?.name || data.patientProfile?.name);
+  }
+  return data;
+};
+
 /**
  * Clears the local session and redirects to the login page.
  */

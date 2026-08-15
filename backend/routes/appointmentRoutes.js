@@ -2,7 +2,9 @@ const express = require('express');
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 const {
   createAppointment,
+  triggerDoctorEmergency,
   updateStatus,
+  rescheduleAppointment,
   patientCheckIn,
   getTodayAppointments,
   getUpcomingAppointments,
@@ -12,10 +14,12 @@ const {
 const router = express.Router();
 
 router.post('/', verifyToken, requireRole('patient'), createAppointment);
+router.post('/emergency', verifyToken, requireRole('doctor'), triggerDoctorEmergency);
 router.get('/today', verifyToken, requireRole('doctor'), getTodayAppointments);
 router.get('/upcoming', verifyToken, requireRole('doctor'), getUpcomingAppointments);
 router.get('/my', verifyToken, requireRole('patient'), getMyAppointments);
 router.patch('/:id/status', verifyToken, requireRole('doctor', 'patient'), updateStatus);
+router.patch('/:id/reschedule', verifyToken, requireRole('doctor'), rescheduleAppointment);
 router.patch('/:id/checkin', verifyToken, requireRole('patient'), patientCheckIn);
 
 module.exports = router;
