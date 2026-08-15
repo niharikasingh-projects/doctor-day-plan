@@ -59,9 +59,13 @@ function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-10">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-md p-8">
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6 text-center">
+    <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="surface w-full max-w-md p-8 md:p-10">
+        <Link to="/" className="brand-mark text-xl font-bold mb-10 no-underline">
+          DoctorDayPlan
+        </Link>
+        <p className="eyebrow mb-2">Get started</p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">
           {role === 'doctor' ? 'Doctor Registration' : 'Patient Registration'}
         </h1>
 
@@ -199,7 +203,7 @@ function Register() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-lg bg-blue-600 text-white py-2 font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="primary-action w-full disabled:opacity-50"
           >
             {isSubmitting ? 'Registering...' : 'Register'}
           </button>

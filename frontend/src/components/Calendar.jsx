@@ -81,6 +81,13 @@ function Calendar({ year, month, availability, isLoading, selectedDate, onSelect
               type="button"
               disabled={isDisabled}
               onClick={() => onSelectDate(dateKey)}
+              aria-label={`${new Date(year, month, day).toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })} - ${isPast ? 'past date' : isAvailable === true ? 'available' : 'unavailable'}`}
+              aria-pressed={isSelected}
               className={`aspect-square rounded-lg text-sm font-medium flex items-center justify-center transition-colors ${stateClasses} ${
                 isSelected ? 'ring-2 ring-blue-600' : ''
               }`}

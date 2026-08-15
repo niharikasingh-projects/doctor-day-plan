@@ -22,6 +22,7 @@ function AppointmentList({ role, onRefresh }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [consultationAppointment, setConsultationAppointment] = useState(null);
+  const [collapsedDates, setCollapsedDates] = useState({});
 
   const loadAppointments = async () => {
     setIsLoading(true);
@@ -77,11 +78,48 @@ function AppointmentList({ role, onRefresh }) {
         <p className="text-gray-500">No appointments found.</p>
       ) : (
         <div className="space-y-3">
-          {appointments.map((appointment) => (
-            <div
-              key={appointment._id}
-              className="bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3"
-            >
+          {appointments.map((appointment, index) => {
+            const appointmentDateKey = new Date(appointment.appointmentDate).toISOString().slice(0, 10);
+            const previousDateKey = index > 0
+              ? new Date(appointments[index - 1].appointmentDate).toISOString().slice(0, 10)
+              : null;
+            const isNewDate = appointmentDateKey !== previousDateKey;
+            const isCollapsed = collapsedDates[appointmentDateKey] === true;
+            const appointmentCount = isNewDate
+              ? appointments.filter(
+                  (item) => new Date(item.appointmentDate).toISOString().slice(0, 10) === appointmentDateKey
+                ).length
+              : 0;
+
+            return (
+              <div key={appointment._id}>
+                {isNewDate && (
+                  <button
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                    onClick={() =>
+                      setCollapsedDates((previous) => ({
+                        ...previous,
+                        [appointmentDateKey]: !isCollapsed,
+                      }))
+                    }
+                    className="date-group-toggle"
+                  >
+                    <span className={`date-group-chevron ${isCollapsed ? 'is-collapsed' : ''}`} aria-hidden="true" />
+                    <span>
+                      {new Date(appointment.appointmentDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        month: 'long',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
+                    <span className="date-group-count">
+                      {appointmentCount} {appointmentCount === 1 ? 'appointment' : 'appointments'}
+                    </span>
+                  </button>
+                )}
+                <div className={isCollapsed ? 'hidden' : 'bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3'}>
               <div>
                 <p className="font-medium text-gray-900">
                   {role === 'doctor'
@@ -166,8 +204,10 @@ function AppointmentList({ role, onRefresh }) {
                   </button>
                 )}
               </div>
-            </div>
-          ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

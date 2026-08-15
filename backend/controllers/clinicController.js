@@ -195,9 +195,23 @@ const getAvailableSlotsForPatient = async (req, res) => {
     }).select('slotTime -_id');
     const bookedSlots = activeAppointments.map((appointment) => appointment.slotTime);
     const bookedSlotSet = new Set(bookedSlots);
-    const slots = generatedSlots.filter((slot) => !bookedSlotSet.has(slot));
+    const currentDate = new Date();
+    const currentDateKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(
+      currentDate.getDate()
+    ).padStart(2, '0')}`;
+    const isToday = date === currentDateKey;
+    const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes();
+    const elapsedSlots = isToday
+      ? generatedSlots.filter((slot) => {
+          const [hours, minutes] = slot.split(':').map(Number);
+          return hours * 60 + minutes <= currentMinutes;
+        })
+      : [];
+    const disabledSlots = [...new Set([...bookedSlots, ...elapsedSlots])];
+    const disabledSlotSet = new Set(disabledSlots);
+    const slots = generatedSlots.filter((slot) => !disabledSlotSet.has(slot));
 
-    return res.status(200).json({ slots, allSlots: generatedSlots, bookedSlots });
+    return res.status(200).json({ slots, allSlots: generatedSlots, bookedSlots, disabledSlots });
   } catch (error) {
     console.error('getAvailableSlotsForPatient error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
