@@ -9,6 +9,11 @@ export const bookAppointment = async (payload) => {
   return data;
 };
 
+export const triggerDoctorEmergency = async (reason) => {
+  const { data } = await axiosInstance.post('/appointments/emergency', { reason });
+  return data;
+};
+
 /**
  * Fetches today's appointments for the authenticated doctor.
  */
@@ -41,6 +46,11 @@ export const fetchMyAppointments = async () => {
  */
 export const updateAppointmentStatus = async (id, status, cancelReason) => {
   const { data } = await axiosInstance.patch(`/appointments/${id}/status`, { status, cancelReason });
+  return data;
+};
+
+export const rescheduleAppointment = async (id, appointmentDate, slotTime) => {
+  const { data } = await axiosInstance.patch(`/appointments/${id}/reschedule`, { appointmentDate, slotTime });
   return data;
 };
 

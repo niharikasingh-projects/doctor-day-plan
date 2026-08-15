@@ -4,6 +4,7 @@ import {
   fetchMyAppointments,
   updateAppointmentStatus,
   checkInAppointment,
+  rescheduleAppointment,
 } from '../api/appointmentService';
 import ConsultationWorkspace from './ConsultationWorkspace';
 
@@ -23,6 +24,9 @@ function AppointmentList({ role, onRefresh }) {
   const [error, setError] = useState('');
   const [consultationAppointment, setConsultationAppointment] = useState(null);
   const [collapsedDates, setCollapsedDates] = useState({});
+  const [reschedulingAppointment, setReschedulingAppointment] = useState(null);
+  const [rescheduleForm, setRescheduleForm] = useState({ appointmentDate: '', slotTime: '' });
+  const [isRescheduling, setIsRescheduling] = useState(false);
 
   const loadAppointments = async () => {
     setIsLoading(true);
@@ -62,6 +66,33 @@ function AppointmentList({ role, onRefresh }) {
       refresh();
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to check in.');
+    }
+  };
+
+  const handleReschedule = async (appointment) => {
+    setReschedulingAppointment(appointment);
+    setRescheduleForm({
+      appointmentDate: new Date(appointment.appointmentDate).toISOString().slice(0, 10),
+      slotTime: appointment.slotTime,
+    });
+  };
+
+  const submitReschedule = async (event) => {
+    event.preventDefault();
+    if (!reschedulingAppointment) return;
+    setIsRescheduling(true);
+    try {
+      await rescheduleAppointment(
+        reschedulingAppointment._id,
+        rescheduleForm.appointmentDate,
+        rescheduleForm.slotTime
+      );
+      setReschedulingAppointment(null);
+      refresh();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Unable to reschedule appointment.');
+    } finally {
+      setIsRescheduling(false);
     }
   };
 
@@ -168,6 +199,16 @@ function AppointmentList({ role, onRefresh }) {
                   </>
                 )}
 
+                {role === 'doctor' && appointment.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => handleReschedule(appointment)}
+                    className="rounded-lg border border-blue-200 text-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-50"
+                  >
+                    Reschedule
+                  </button>
+                )}
+
                 {role === 'doctor' && appointment.status === 'confirmed' && (
                   <button
                     type="button"
@@ -217,6 +258,53 @@ function AppointmentList({ role, onRefresh }) {
           onClose={() => setConsultationAppointment(null)}
           onCompleted={refresh}
         />
+      )}
+
+      {reschedulingAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="surface w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="reschedule-title">
+            <p className="eyebrow mb-2">Appointment timing</p>
+            <h3 id="reschedule-title" className="text-2xl font-bold text-gray-900 mb-1">Reschedule appointment</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              Choose a new date and time. The appointment will return to pending until confirmed.
+            </p>
+            <form onSubmit={submitReschedule} className="space-y-4">
+              <label className="block text-sm font-medium text-gray-700">
+                New date
+                <input
+                  type="date"
+                  required
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={rescheduleForm.appointmentDate}
+                  onChange={(event) => setRescheduleForm((previous) => ({ ...previous, appointmentDate: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm font-medium text-gray-700">
+                New time
+                <input
+                  type="time"
+                  required
+                  value={rescheduleForm.slotTime}
+                  onChange={(event) => setRescheduleForm((previous) => ({ ...previous, slotTime: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReschedulingAppointment(null)}
+                  className="rounded-lg px-4 py-2 font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={isRescheduling} className="primary-action disabled:opacity-50">
+                  {isRescheduling ? 'Saving...' : 'Save new time'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

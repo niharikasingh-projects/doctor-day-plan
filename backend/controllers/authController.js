@@ -77,6 +77,10 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    if (!user.isActive) {
+      return res.status(403).json({ error: 'This account is inactive. Please contact support.' });
+    }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password.' });
@@ -99,4 +103,41 @@ const loginUser = async (req, res) => {
   }
 };
 
-module.exports = { registerPatient, registerDoctor, loginUser };
+// GET /api/auth/profile (Protected) — returns the authenticated user's profile.
+const getProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-passwordHash');
+    if (!user || !user.isActive) {
+      return res.status(404).json({ error: 'Active user profile not found.' });
+    }
+    return res.status(200).json(user);
+  } catch (error) {
+    console.error('getProfile error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// PATCH /api/auth/profile (Protected) — updates only the authenticated user's profile fields.
+const updateProfile = async (req, res) => {
+  try {
+    const { phone, doctorProfile, patientProfile } = req.body;
+    const updates = {};
+    if (phone !== undefined) updates.phone = phone;
+    if (req.user.role === 'doctor' && doctorProfile) updates.doctorProfile = doctorProfile;
+    if (req.user.role === 'patient' && patientProfile) updates.patientProfile = patientProfile;
+
+    const user = await User.findOneAndUpdate(
+      { _id: req.user.userId, role: req.user.role, isActive: true },
+      { $set: updates },
+      { returnDocument: 'after', runValidators: true }
+    ).select('-passwordHash');
+
+    if (!user) return res.status(404).json({ error: 'Active user profile not found.' });
+    return res.status(200).json(user);
+  } catch (error) {
+    console.error('updateProfile error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+module.exports = { registerPatient, registerDoctor, loginUser, getProfile, updateProfile };

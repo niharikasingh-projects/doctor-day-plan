@@ -14,9 +14,6 @@ const { initQueueHandler } = require('./sockets/queueHandler');
 
 const app = express();
 
-// Establish connectivity right at application boot
-connectDB();
-
 // Middleware Global Configuration
 app.use(cors());
 app.use(express.json());
@@ -49,12 +46,16 @@ const io = new Server(server, { cors: { origin: '*' } });
 setIO(io);
 initQueueHandler(io);
 
-// Start Listening to Traffic Gateway
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`==================================================`);
-  console.log(`🚀 Server executing safely in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log(`🔌 Listening for API network traffic on port: ${PORT}`);
-  console.log(`📡 Socket.io live queue gateway is active`);
-  console.log(`==================================================`);
-});
+if (require.main === module) {
+  connectDB();
+  server.listen(PORT, () => {
+    console.log(`==================================================`);
+    console.log(`🚀 Server executing safely in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`🔌 Listening for API network traffic on port: ${PORT}`);
+    console.log(`📡 Socket.io live queue gateway is active`);
+    console.log(`==================================================`);
+  });
+}
+
+module.exports = { app, server, io };
