@@ -5,6 +5,7 @@ import {
   updateAppointmentStatus,
   checkInAppointment,
 } from '../api/appointmentService';
+import ConsultationWorkspace from './ConsultationWorkspace';
 
 const STATUS_STYLES = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -20,6 +21,7 @@ function AppointmentList({ role, onRefresh }) {
   const [appointments, setAppointments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [consultationAppointment, setConsultationAppointment] = useState(null);
 
   const loadAppointments = async () => {
     setIsLoading(true);
@@ -128,6 +130,16 @@ function AppointmentList({ role, onRefresh }) {
                   </>
                 )}
 
+                {role === 'doctor' && appointment.status === 'confirmed' && (
+                  <button
+                    type="button"
+                    onClick={() => setConsultationAppointment(appointment)}
+                    className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700"
+                  >
+                    Complete Consultation
+                  </button>
+                )}
+
                 {role === 'patient' &&
                   ['pending', 'confirmed'].includes(appointment.status) &&
                   isToday(appointment.appointmentDate) &&
@@ -157,6 +169,14 @@ function AppointmentList({ role, onRefresh }) {
             </div>
           ))}
         </div>
+      )}
+
+      {consultationAppointment && (
+        <ConsultationWorkspace
+          appointment={consultationAppointment}
+          onClose={() => setConsultationAppointment(null)}
+          onCompleted={refresh}
+        />
       )}
     </div>
   );

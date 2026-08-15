@@ -3,19 +3,61 @@ import { useNavigate } from 'react-router-dom';
 import Calendar from './Calendar';
 import SlotSelector from './SlotSelector';
 import AppointmentList from './AppointmentList';
+import LiveQueue from './LiveQueue';
+import MedicalHistory from './MedicalHistory';
 import { fetchAvailableSlots, fetchAllClinics, fetchMonthlyAvailability } from '../api/clinicService';
-import { bookAppointment } from '../api/appointmentService';
+import { bookAppointment, fetchMyAppointments } from '../api/appointmentService';
 import { logout } from '../api/authService';
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`;
+const INDIAN_CITIES = [
+  'Ahmedabad',
+  'Amritsar',
+  'Bengaluru',
+  'Bhopal',
+  'Bhubaneswar',
+  'Chandigarh',
+  'Chennai',
+  'Coimbatore',
+  'Dehradun',
+  'Delhi',
+  'Gurugram',
+  'Guwahati',
+  'Hyderabad',
+  'Indore',
+  'Jaipur',
+  'Jammu',
+  'Kanpur',
+  'Kochi',
+  'Kolkata',
+  'Lucknow',
+  'Ludhiana',
+  'Mumbai',
+  'Mysuru',
+  'Nagpur',
+  'Nashik',
+  'Noida',
+  'Patna',
+  'Pune',
+  'Rajkot',
+  'Ranchi',
+  'Surat',
+  'Thiruvananthapuram',
+  'Vadodara',
+  'Varanasi',
+  'Vijayawada',
+  'Visakhapatnam',
+];
 
 function PatientDashboard() {
   const navigate = useNavigate();
   const today = new Date();
   const patientName = localStorage.getItem('name');
+  const [activeTab, setActiveTab] = useState('booking');
 
   const [clinics, setClinics] = useState([]);
   const [isLoadingClinics, setIsLoadingClinics] = useState(true);
+  const [selectedCity, setSelectedCity] = useState('');
   const [selectedClinicId, setSelectedClinicId] = useState('');
 
   const [calendarYear, setCalendarYear] = useState(today.getFullYear());
@@ -25,10 +67,31 @@ function PatientDashboard() {
 
   const [selectedDate, setSelectedDate] = useState('');
   const [slots, setSlots] = useState([]);
+  const [bookedSlots, setBookedSlots] = useState([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState('');
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
+
+  useEffect(() => {
+    const loadActiveAppointment = async () => {
+      try {
+        const data = await fetchMyAppointments();
+        const checkedInToday = data.find(
+          (appt) =>
+            appt.checkedInAt &&
+            appt.status === 'confirmed' &&
+            new Date(appt.appointmentDate).toDateString() === new Date().toDateString()
+        );
+        setActiveQueueAppointment(checkedInToday || null);
+      } catch {
+        setActiveQueueAppointment(null);
+      }
+    };
+
+    loadActiveAppointment();
+  }, [refreshKey]);
 
   useEffect(() => {
     const loadClinics = async () => {
@@ -67,6 +130,22 @@ function PatientDashboard() {
     loadAvailability();
   }, [selectedClinicId, calendarYear, calendarMonth]);
 
+  useEffect(() => {
+    if (!selectedClinicId || !selectedDate || refreshKey === 0) return;
+
+    const refreshSlots = async () => {
+      try {
+        const data = await fetchAvailableSlots(selectedClinicId, selectedDate);
+        setSlots(data.allSlots || data.slots || []);
+        setBookedSlots(data.bookedSlots || []);
+      } catch (err) {
+        setStatus(err.response?.data?.error || 'Unable to refresh slot availability.');
+      }
+    };
+
+    refreshSlots();
+  }, [refreshKey, selectedClinicId, selectedDate]);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -76,12 +155,27 @@ function PatientDashboard() {
     setSelectedClinicId(event.target.value);
     setSelectedDate('');
     setSlots([]);
+    setBookedSlots([]);
     setSelectedSlot('');
   };
+
+  const handleCityChange = (event) => {
+    setSelectedCity(event.target.value);
+    setSelectedClinicId('');
+    setSelectedDate('');
+    setSlots([]);
+    setBookedSlots([]);
+    setSelectedSlot('');
+  };
+
+  const clinicsInSelectedCity = clinics.filter((clinic) =>
+    selectedCity ? clinic.address.toLowerCase().includes(selectedCity.toLowerCase()) : false
+  );
 
   const changeMonth = (delta) => {
     setSelectedDate('');
     setSlots([]);
+    setBookedSlots([]);
     setSelectedSlot('');
     setCalendarMonth((prevMonth) => {
       let nextMonth = prevMonth + delta;
@@ -101,11 +195,13 @@ function PatientDashboard() {
   const handleSelectDate = async (dateKey) => {
     setSelectedDate(dateKey);
     setSelectedSlot('');
+    setBookedSlots([]);
     setStatus('');
     setIsLoadingSlots(true);
     try {
       const data = await fetchAvailableSlots(selectedClinicId, dateKey);
-      setSlots(data.slots || []);
+      setSlots(data.allSlots || data.slots || []);
+      setBookedSlots(data.bookedSlots || []);
     } catch (err) {
       setStatus(err.response?.data?.error || 'Unable to fetch slots.');
     } finally {
@@ -140,36 +236,87 @@ function PatientDashboard() {
           <h1 className="text-lg font-semibold text-gray-900">DoctorDayPlan — Patient Dashboard</h1>
           {patientName && <p className="text-sm text-gray-500">{patientName}</p>}
         </div>
-        <button type="button" onClick={handleLogout} className="text-sm font-medium text-red-600 hover:underline">
-          Logout
-        </button>
+        <div className="flex items-center gap-3">
+          <nav className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('booking')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                activeTab === 'booking' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              Book Appointment
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                activeTab === 'history' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              My Medical History
+            </button>
+          </nav>
+          <button type="button" onClick={handleLogout} className="text-sm font-medium text-red-600 hover:underline">
+            Logout
+          </button>
+        </div>
       </header>
 
       <main className="p-6 max-w-4xl mx-auto space-y-8">
-        <section className="bg-white rounded-xl shadow p-6">
+        {activeTab === 'booking' && <section className="bg-white rounded-xl shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Book an Appointment</h2>
 
-          <div className="mb-4">
-            <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
-              Clinic
-            </label>
-            <select
-              id="clinicSelect"
-              value={selectedClinicId}
-              onChange={handleClinicChange}
-              disabled={isLoadingClinics}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
-            >
-              <option value="" disabled>
-                {isLoadingClinics ? 'Loading clinics...' : 'Select a clinic'}
-              </option>
-              {clinics.map((clinic) => (
-                <option key={clinic._id} value={clinic._id}>
-                  {clinic.name} — {clinic.address}
-                  {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+          <div className="flex flex-wrap gap-4 mb-4">
+            <div>
+              <label htmlFor="citySelect" className="block text-sm font-medium text-gray-700 mb-1">
+                City
+              </label>
+              <select
+                id="citySelect"
+                required
+                value={selectedCity}
+                onChange={handleCityChange}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[220px]"
+              >
+                <option value="" disabled>
+                  Select a city
                 </option>
-              ))}
-            </select>
+                {INDIAN_CITIES.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block">Clinic</span>
+              <select
+                id="clinicSelect"
+                required
+                value={selectedClinicId}
+                onChange={handleClinicChange}
+                disabled={!selectedCity || isLoadingClinics}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
+              >
+                <option value="" disabled>
+                  {!selectedCity
+                    ? 'Select a city first'
+                    : isLoadingClinics
+                      ? 'Loading clinics...'
+                      : clinicsInSelectedCity.length === 0
+                        ? 'No clinics in this city'
+                        : 'Select a clinic'}
+                </option>
+                {clinicsInSelectedCity.map((clinic) => (
+                  <option key={clinic._id} value={clinic._id}>
+                    {clinic.name} — {clinic.address}
+                    {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {selectedClinicId && (
@@ -195,7 +342,12 @@ function PatientDashboard() {
                     <h3 className="text-sm font-medium text-gray-700 mb-2">
                       Slots on {new Date(selectedDate).toLocaleDateString()}
                     </h3>
-                    <SlotSelector slots={slots} selectedSlot={selectedSlot} onSelectSlot={setSelectedSlot} />
+                    <SlotSelector
+                      slots={slots}
+                      disabledSlots={bookedSlots}
+                      selectedSlot={selectedSlot}
+                      onSelectSlot={setSelectedSlot}
+                    />
 
                     {selectedSlot && (
                       <button
@@ -213,9 +365,23 @@ function PatientDashboard() {
           )}
 
           {status && <p className="text-sm text-gray-600 mt-3">{status}</p>}
-        </section>
+        </section>}
 
-        <AppointmentList key={refreshKey} role="patient" onRefresh={() => setRefreshKey((prev) => prev + 1)} />
+        {activeTab === 'booking' && activeQueueAppointment && (
+          <LiveQueue
+            clinicId={activeQueueAppointment.clinicId?._id || activeQueueAppointment.clinicId}
+            role="patient"
+            avgConsultationMins={activeQueueAppointment.doctorId?.doctorProfile?.avgConsultationMins || 15}
+            myAppointmentId={activeQueueAppointment._id}
+          />
+        )}
+
+        {activeTab === 'booking' && (
+          <AppointmentList key={refreshKey} role="patient" onRefresh={() => setRefreshKey((prev) => prev + 1)} />
+        )}
+        {activeTab === 'history' && (
+          <MedicalHistory patientId={localStorage.getItem('userId')} title="My Medical History" />
+        )}
       </main>
     </div>
   );

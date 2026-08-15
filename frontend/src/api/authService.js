@@ -12,6 +12,7 @@ export const login = async (email, password) => {
     localStorage.setItem('token', data.token);
     localStorage.setItem('role', data.role);
     localStorage.setItem('name', data.user?.name || data.user?.email || '');
+    localStorage.setItem('userId', data.user?.id || '');
   }
 
   return data;
@@ -42,5 +43,6 @@ export const logout = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('role');
   localStorage.removeItem('name');
+  localStorage.removeItem('userId');
   window.location.href = '/login';
 };
