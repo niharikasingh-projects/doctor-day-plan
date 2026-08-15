@@ -1,0 +1,177 @@
+const Appointment = require('../models/Appointment');
+
+// POST /api/appointments (Patient only) — books a new appointment slot.
+const createAppointment = async (req, res) => {
+  try {
+    const { clinicId, doctorId, appointmentDate, slotTime } = req.body;
+
+    if (!clinicId || !doctorId || !appointmentDate || !slotTime) {
+      return res.status(400).json({ error: 'clinicId, doctorId, appointmentDate, and slotTime are required.' });
+    }
+
+    const existingAppointment = await Appointment.findOne({ clinicId, appointmentDate, slotTime });
+    if (existingAppointment) {
+      return res.status(400).json({ error: 'This appointment slot is already booked.' });
+    }
+
+    const appointment = new Appointment({
+      clinicId,
+      doctorId,
+      patientId: req.user.userId,
+      appointmentDate,
+      slotTime,
+      status: 'pending',
+    });
+
+    await appointment.save();
+
+    return res.status(201).json(appointment);
+  } catch (error) {
+    console.error('createAppointment error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// PATCH /api/appointments/:id/status (Doctor/Patient) — transitions an appointment's status.
+const updateStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, cancelReason } = req.body;
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found.' });
+    }
+
+    if (req.user.role === 'doctor') {
+      if (!['confirmed', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: 'Doctors may only set status to confirmed or rejected.' });
+      }
+      if (String(appointment.doctorId) !== String(req.user.userId)) {
+        return res.status(403).json({ error: 'You do not have permission to modify this appointment.' });
+      }
+      appointment.status = status;
+    } else if (req.user.role === 'patient') {
+      if (status !== 'cancelled') {
+        return res.status(400).json({ error: 'Patients may only cancel appointments.' });
+      }
+      if (!cancelReason) {
+        return res.status(400).json({ error: 'cancelReason is required when cancelling an appointment.' });
+      }
+      if (String(appointment.patientId) !== String(req.user.userId)) {
+        return res.status(403).json({ error: 'You do not have permission to modify this appointment.' });
+      }
+      appointment.status = status;
+      appointment.cancelReason = cancelReason;
+    } else {
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    }
+
+    await appointment.save();
+
+    return res.status(200).json(appointment);
+  } catch (error) {
+    console.error('updateStatus error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// PATCH /api/appointments/:id/checkin (Patient only) — marks the patient as checked in.
+const patientCheckIn = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found.' });
+    }
+
+    if (String(appointment.patientId) !== String(req.user.userId)) {
+      return res.status(403).json({ error: 'You do not have permission to check in this appointment.' });
+    }
+
+    if (!['pending', 'confirmed'].includes(appointment.status)) {
+      return res.status(400).json({ error: 'Only pending or confirmed appointments can be checked in.' });
+    }
+
+    appointment.status = 'confirmed';
+    appointment.checkedInAt = Date.now();
+    await appointment.save();
+
+    return res.status(200).json(appointment);
+  } catch (error) {
+    console.error('patientCheckIn error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// GET /api/appointments/today (Doctor only) — lists today's appointments for the authenticated doctor.
+const getTodayAppointments = async (req, res) => {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const appointments = await Appointment.find({
+      doctorId: req.user.userId,
+      appointmentDate: { $gte: startOfDay, $lte: endOfDay },
+    })
+      .populate('patientId', 'email phone patientProfile')
+      .populate('clinicId', 'name address')
+      .sort({ slotTime: 1 });
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    console.error('getTodayAppointments error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// GET /api/appointments/upcoming (Doctor only) — lists ALL of the authenticated doctor's
+// current & future appointments (not just today's), so bookings for any date are visible.
+const getUpcomingAppointments = async (req, res) => {
+  try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const appointments = await Appointment.find({
+      doctorId: req.user.userId,
+      appointmentDate: { $gte: startOfToday },
+    })
+      .populate('patientId', 'email phone patientProfile')
+      .populate('clinicId', 'name address')
+      .sort({ appointmentDate: 1, slotTime: 1 });
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    console.error('getUpcomingAppointments error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// GET /api/appointments/my (Patient only) — lists the authenticated patient's own bookings.
+// Not part of the original spec's exposed endpoints, but required for the patient
+// booking-history UI (AppointmentList.jsx) to have any data source to call.
+const getMyAppointments = async (req, res) => {
+  try {
+    const appointments = await Appointment.find({ patientId: req.user.userId })
+      .populate('doctorId', 'email doctorProfile')
+      .populate('clinicId', 'name address')
+      .sort({ appointmentDate: -1 });
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    console.error('getMyAppointments error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+module.exports = {
+  createAppointment,
+  updateStatus,
+  patientCheckIn,
+  getTodayAppointments,
+  getUpcomingAppointments,
+  getMyAppointments,
+};
