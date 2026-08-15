@@ -1,5 +1,6 @@
 const Clinic = require('../models/Clinic');
 const User = require('../models/User');
+const Appointment = require('../models/Appointment');
 
 // POST /api/clinics (Doctor only) — creates a new clinic owned by the authenticated doctor.
 const createClinic = async (req, res) => {
@@ -122,18 +123,28 @@ const getAvailableSlotsForPatient = async (req, res) => {
     const [startHour, startMinute] = rule.startTime.split(':').map(Number);
     const [endHour, endMinute] = rule.endTime.split(':').map(Number);
 
-    const slots = [];
+    const generatedSlots = [];
     let cursorMinutes = startHour * 60 + startMinute;
     const endMinutes = endHour * 60 + endMinute;
 
     while (cursorMinutes + slotDurationMins <= endMinutes) {
       const hours = String(Math.floor(cursorMinutes / 60)).padStart(2, '0');
       const minutes = String(cursorMinutes % 60).padStart(2, '0');
-      slots.push(`${hours}:${minutes}`);
+      generatedSlots.push(`${hours}:${minutes}`);
       cursorMinutes += slotDurationMins;
     }
 
-    return res.status(200).json({ slots });
+    const nextDate = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000);
+    const activeAppointments = await Appointment.find({
+      clinicId,
+      appointmentDate: { $gte: targetDate, $lt: nextDate },
+      status: { $in: ['pending', 'confirmed', 'completed'] },
+    }).select('slotTime -_id');
+    const bookedSlots = activeAppointments.map((appointment) => appointment.slotTime);
+    const bookedSlotSet = new Set(bookedSlots);
+    const slots = generatedSlots.filter((slot) => !bookedSlotSet.has(slot));
+
+    return res.status(200).json({ slots, allSlots: generatedSlots, bookedSlots });
   } catch (error) {
     console.error('getAvailableSlotsForPatient error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });

@@ -1,4 +1,7 @@
 const Appointment = require('../models/Appointment');
+const User = require('../models/User');
+const { getIO } = require('../sockets/ioInstance');
+const { addPatientToQueue } = require('../sockets/queueHandler');
 
 // POST /api/appointments (Patient only) — books a new appointment slot.
 const createAppointment = async (req, res) => {
@@ -97,6 +100,26 @@ const patientCheckIn = async (req, res) => {
     appointment.status = 'confirmed';
     appointment.checkedInAt = Date.now();
     await appointment.save();
+
+    const io = getIO();
+    if (io) {
+      const [patient, doctor] = await Promise.all([
+        User.findById(appointment.patientId),
+        User.findById(appointment.doctorId),
+      ]);
+
+      addPatientToQueue(
+        io,
+        String(appointment.clinicId),
+        {
+          appointmentId: String(appointment._id),
+          patientId: String(appointment.patientId),
+          patientName: patient?.patientProfile?.name || patient?.email || 'Patient',
+          checkedInAt: appointment.checkedInAt,
+        },
+        doctor?.doctorProfile?.avgConsultationMins || 15
+      );
+    }
 
     return res.status(200).json(appointment);
   } catch (error) {

@@ -34,37 +34,50 @@ doctor-day-plan/
 │   │   └── db.js                    # Mongoose connection + event listeners
 │   ├── controllers/
 │   │   ├── authController.js        # registerPatient, registerDoctor, loginUser
-│   │   ├── clinicController.js      # createClinic, getAllClinics, getDoctorClinics, addUnavailableDate, getAvailableSlotsForPatient
-│   │   └── appointmentController.js # createAppointment, updateStatus, patientCheckIn, getTodayAppointments, getMyAppointments
+│   │   ├── clinicController.js      # clinics, schedules, slots, monthly availability
+│   │   ├── appointmentController.js # booking, status, check-in, today/upcoming lists
+│   │   └── consultationController.js# consultation records, history, PDF downloads
 │   ├── middleware/
 │   │   └── authMiddleware.js        # verifyToken, requireRole
 │   ├── models/
 │   │   ├── User.js                  # role enum + embedded doctorProfile/patientProfile
 │   │   ├── Clinic.js                # doctorId FK + scheduleRules
 │   │   ├── Appointment.js           # clinicId/doctorId/patientId FKs + status enum
-│   │   ├── Consultation.js          # (Module 5 schema — not yet wired to routes/UI)
-│   │   └── Medicine.js              # (Module 5 schema — not yet wired to routes/UI)
+│   │   ├── Consultation.js          # diagnosis, clinical notes, embedded prescriptions
+│   │   └── Medicine.js              # medicine catalog schema
 │   ├── routes/
 │   │   ├── authRoutes.js
 │   │   ├── clinicRoutes.js
-│   │   └── appointmentRoutes.js
+│   │   ├── appointmentRoutes.js
+│   │   └── consultationRoutes.js
+│   ├── sockets/
+│   │   ├── ioInstance.js            # shared Socket.io instance for REST/socket coordination
+│   │   └── queueHandler.js           # per-clinic in-memory live queue events
 │   ├── utils/
-│   │   └── seedData.js              # Dummy doctor/patient/clinic seed script (`npm run seed`)
+│   │   ├── prescriptionGenerator.js # direct PDFKit-to-Express streaming
+│   │   └── seedData.js              # dummy doctor/patient/clinic seed script (`npm run seed`)
 │   ├── __tests__/         # Automated Testing Specs
 │   ├── .env               # Secret System Keys & Port Parameters
 │   ├── package.json       # Contains express, mongoose, bcrypt, etc.
-│   └── server.js          # Node Entry Point Core File (mounts auth/clinic/appointment routers)
+│   └── server.js          # Express + native HTTP server + Socket.io entry point
 ├── frontend/              <-- Isolated Frontend Workspace Folder
 │   ├── src/
 │   │   ├── api/
 │   │   │   ├── axiosInstance.js     # Bearer token + 401/500 response interceptors
 │   │   │   ├── authService.js       # login, register, registerDoctor, logout
 │   │   │   ├── clinicService.js     # createClinic, fetchAllClinics, fetchDoctorClinics, setUnavailableDate, fetchAvailableSlots
-│   │   │   └── appointmentService.js # bookAppointment, fetchTodayAppointments, fetchMyAppointments, updateAppointmentStatus, checkInAppointment
+│   │   │   ├── appointmentService.js # booking, status, history, check-in
+│   │   │   └── consultationService.js# consultation CRUD, history, blob PDF downloads
 │   │   ├── components/
 │   │   │   ├── Login.jsx / Register.jsx / ProtectedRoute.jsx
 │   │   │   ├── DoctorDashboard.jsx / PatientDashboard.jsx
-│   │   │   └── ClinicManager.jsx / SlotSelector.jsx / AppointmentList.jsx
+│   │   │   ├── ClinicManager.jsx / Calendar.jsx / SlotSelector.jsx / AppointmentList.jsx
+│   │   │   ├── LiveQueue.jsx / ConsultationWorkspace.jsx
+│   │   │   └── MedicalHistory.jsx / PatientRecords.jsx
+│   │   ├── context/
+│   │   │   └── QueueContext.jsx    # shared Socket.io state provider
+│   │   ├── hooks/
+│   │   │   └── useLiveQueue.js     # queue command wrappers
 │   │   ├── App.jsx                  # react-router-dom routes + role-based guarding
 │   │   └── index.css                # Core Tailwind CSS Imports
 │   ├── .env                # VITE_API_URL, VITE_SOCKET_URL (Vite project — NOT Create React App)
@@ -148,12 +161,16 @@ VITE_API_URL=http://localhost:5000/api
 VITE_SOCKET_URL=http://localhost:5000
 ```
 
-### 5. Setup the Primary App Server (`backend/server.js`)
-Create your backend entry point at `backend/server.js` with this baseline production boilerplate:
+### 5. Backend Server and Real-Time Gateway
+The current `backend/server.js` wraps Express in a native HTTP server and attaches Socket.io to the same port. It mounts the authentication, clinic, appointment, and consultation routers, then initializes the live queue handler.
+
+The server starts on port `5000` by default:
 ```javascript
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 const app = express();
@@ -164,13 +181,21 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'DoctorDayPlan API engine is executing safely.' });
 });
 
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/clinics', require('./routes/clinicRoutes'));
+app.use('/api/appointments', require('./routes/appointmentRoutes'));
+app.use('/api/consultations', require('./routes/consultationRoutes'));
+
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../frontend/dist')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
 }
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server executing safely on port: ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server executing safely on port: ${PORT}`));
 ```
 
 ### 6. Root Automation Scripts
@@ -190,6 +215,17 @@ Open your primary root directory terminal and launch the entire live hot-reloadi
 npm run dev
 ```
 
+On PowerShell installations where `npm.ps1` is blocked by the execution policy, use the Windows command shim:
+```bash
+npm.cmd run dev
+```
+
+To seed the local database from the backend directory:
+```bash
+cd backend
+npm.cmd run seed
+```
+
 To run your backend business logic unit tests, execute:
 ```bash
 npm run test
@@ -197,7 +233,7 @@ npm run test
 
 ---
 
-## ✅ Implemented Functionality (Modules 1–3)
+## ✅ Implemented Functionality (Modules 1–5)
 
 ### Module 1 — Authentication & Access
 * Patient self-registration (`POST /api/auth/register`) and doctor self-registration (`POST /api/auth/register/doctor`); passwords are hashed via a `bcrypt` pre-save hook on the `User` model (never stored in plaintext).
@@ -209,14 +245,38 @@ npm run test
 * Doctors create clinics with weekly `scheduleRules` (`POST /api/clinics`), list their own clinics (`GET /api/clinics/my-clinics`), and log leave/unavailable dates on their profile (`PATCH /api/clinics/unavailable-dates`).
 * Patients (and doctors) browse all active clinics with doctor details populated (`GET /api/clinics`) and fetch generated available time slots for a chosen date (`GET /api/clinics/:clinicId/slots`).
 * `ClinicManager.jsx` handles doctor-side clinic CRUD + the unavailable-date form; the Patient Dashboard offers a clinic dropdown (name, address, doctor) feeding into `SlotSelector.jsx`.
+* Patients select a clinic and use a month calendar. The calendar highlights dates with configured clinic hours in green and unavailable/non-operating dates in red. Clicking an available date immediately loads its slots; there is no separate "Find Slots" button.
+* The selected-date slot response includes `slots` (selectable times), `allSlots` (the complete schedule), and `bookedSlots` (times occupied by active appointments). The UI keeps booked times visible but disabled.
+* The Patient Dashboard is split into **Book Appointment** and **My Medical History** tabs. Booking, live queue status, and appointment history stay in the booking tab, while diagnoses, notes, medicines, and prescription downloads are available in the medical-history tab.
 
 ### Module 3 — Appointment Management
 * Patients book slots (`POST /api/appointments`); double-booking is blocked at the database level via a compound unique index on `[clinicId, appointmentDate, slotTime]`.
 * Doctors accept/reject appointments and patients cancel with a reason (`PATCH /api/appointments/:id/status`); patients can check in (`PATCH /api/appointments/:id/checkin`).
-* Doctors view today's queue (`GET /api/appointments/today`); patients view their own booking history (`GET /api/appointments/my`).
-* `AppointmentList.jsx` renders both role-specific views; `DoctorDashboard.jsx` and `PatientDashboard.jsx` tie clinics, slots, and appointments together end-to-end.
+* Doctors can view today's appointments (`GET /api/appointments/today`) or all current/future appointments (`GET /api/appointments/upcoming`); patients view their own booking history (`GET /api/appointments/my`).
+* `AppointmentList.jsx` renders both role-specific views. A doctor can open a confirmed appointment in the consultation workspace.
+* `pending`, `confirmed`, and `completed` appointments reserve a clinic/date/time slot. `cancelled` and `rejected` appointments release that slot, and the Patient Dashboard refreshes availability after booking or cancellation.
 
-> **Not yet wired up:** `Consultation.js` and `Medicine.js` Mongoose schemas (Module 5 — consultation records & PDF prescriptions) exist in `backend/models/` but have no controllers/routes/UI yet.
+### Module 4 — Live Queue & Real-Time Updates
+* Socket.io uses the same HTTP server as Express. Queue state is maintained in memory per clinic room and is broadcast through `queueUpdated`.
+* Supported events: `joinQueueRoom`, `callNextPatient`, `skipPatient`, and `consultationFinished`.
+* A successful patient check-in adds the appointment to its clinic queue and broadcasts the update. Queue payloads contain `currentPatient`, `waitingQueueArray`, and `estimatedWaitTime`.
+* Doctors use the **Live Queue** dashboard tab to select a clinic, call the next patient, skip a patient, or finish the active consultation. Patients with a checked-in appointment see their live position and estimated wait time.
+* Frontend socket state is isolated in `QueueContext.jsx` and commands are exposed through `useLiveQueue.js`; socket listeners are removed on cleanup.
+
+### Module 5 — Consultation & Medical Records
+* Doctors create one consultation per appointment (`POST /api/consultations`), recording `diagnosis`, `clinicalNotes`, and embedded prescription lines (`name`, `dosage`, `durationDays`, `instructions`). The related appointment is marked `completed`.
+* Patients can view their own history and doctors can view history for patients they have treated (`GET /api/consultations/patient/:patientId`).
+* Doctors can search patients associated with their appointments by name, email, or phone (`GET /api/consultations/search?query=...`). The search is doctor-only and returns only that doctor's known patients.
+* Authorized doctors and patients can download prescriptions (`GET /api/consultations/:id/download`). PDFKit streams the PDF directly to the Express response; no PDF is saved to application disk.
+* `ConsultationWorkspace.jsx` provides the diagnosis form, dynamic medicine rows, history timeline, and PDF download controls. `MedicalHistory.jsx` exposes diagnoses, clinical notes, prescribed medicines, and PDF downloads to patients. `PatientRecords.jsx` provides the doctor search workflow. `consultationService.js` handles JSON requests and browser blob downloads.
+* Consultation creation derives patient, doctor, and clinic relationships from the appointment rather than trusting client-supplied IDs, and saves the consultation plus appointment completion inside a MongoDB transaction.
+
+### Verification Status
+* The frontend production build passes with Vite.
+* Focused diagnostics pass for the new patient history and records-search components.
+* The full ESLint run still reports older hook/style findings in existing queue, calendar, clinic, appointment, and socket-context files; these do not prevent the production build.
+
+> **Current queue limitation:** live queue state is intentionally in memory. Restarting the backend clears active queue state, while appointment and consultation records remain in MongoDB. Individual day slots now reflect active `pending`, `confirmed`, and `completed` appointments as disabled; `cancelled` and `rejected` appointments release their slot and make it available again after the selected date is refreshed.
 
 ---
 

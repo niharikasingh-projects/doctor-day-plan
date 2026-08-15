@@ -1,16 +1,9 @@
 const mongoose = require('mongoose');
 
-// Embedded prescription line-item: denormalizes the medicine name/category at
-// prescription time so historical records remain accurate even if the
-// referenced Medicine catalog entry changes later, while still keeping the
-// ObjectId reference for lookups and reporting.
+// Embedded prescription line-item — self-contained (no catalog reference) per
+// the Module 5 data dictionary; dosage follows the common "1-0-1" shorthand.
 const prescribedMedicineSchema = new mongoose.Schema(
   {
-    medicineId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Medicine',
-      required: [true, 'medicineId is required for a prescribed medicine.'],
-    },
     name: {
       type: String,
       required: [true, 'Prescribed medicine name is required.'],
@@ -18,16 +11,12 @@ const prescribedMedicineSchema = new mongoose.Schema(
     },
     dosage: {
       type: String,
-      required: [true, 'Dosage is required (e.g. "500mg").'],
-      trim: true,
-    },
-    frequency: {
-      type: String,
-      required: [true, 'Frequency is required (e.g. "1-0-1").'],
+      required: [true, 'Dosage is required (e.g. "1-0-1").'],
       trim: true,
     },
     durationDays: {
       type: Number,
+      required: [true, 'durationDays is required.'],
       min: [1, 'durationDays must be at least 1.'],
     },
     instructions: {
@@ -56,27 +45,23 @@ const consultationSchema = new mongoose.Schema(
       ref: 'User',
       required: [true, 'doctorId is required.'],
     },
-    symptoms: {
-      type: String,
-      required: [true, 'symptoms text is required.'],
-      trim: true,
+    clinicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Clinic',
+      required: [true, 'clinicId is required.'],
     },
     diagnosis: {
       type: String,
       required: [true, 'diagnosis is required.'],
       trim: true,
     },
-    medicines: {
-      type: [prescribedMedicineSchema],
-      default: [],
-    },
-    notes: {
+    clinicalNotes: {
       type: String,
       trim: true,
     },
-    followUpDate: {
-      type: Date,
-      default: null,
+    medicines: {
+      type: [prescribedMedicineSchema],
+      default: [],
     },
   },
   { timestamps: true }
