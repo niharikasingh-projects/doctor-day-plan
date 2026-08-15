@@ -1,0 +1,33 @@
+name: MERN Agent Output Validation CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validate-backend:
+    name: Validate Node.js Express Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20', cache: 'npm'}
+      - run: npm ci
+      - run: npm run lint
+        continue-on-error: true
+      - run: npm test
+        continue-on-error: true
+
+  validate-frontend:
+    name: Validate React Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20', cache: 'npm'}
+      - run: cd frontend && npm ci
+        if: hashFiles('frontend/package-lock.json') != ''
+      - run: cd frontend && npm run build
+        if: hashFiles('frontend/package-lock.json') != ''

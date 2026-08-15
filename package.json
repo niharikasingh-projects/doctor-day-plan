@@ -1,0 +1,16 @@
+{
+  "name": "doctor-day-plan",
+  "version": "1.0.0",
+  "description": "DoctorDayPlan Full Stack Root Orchestrator",
+  "main": "server.js",
+  "scripts": {
+    "backend": "cd backend && nodemon server.js",
+    "frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "test": "cd backend && jest --runInBand --detectOpenHandles"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.0"
+  }
+}
