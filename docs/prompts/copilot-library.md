@@ -76,6 +76,225 @@ Generate API calls for the doctor-centric features:
 
 Output Format: Provide complete, modular JavaScript files exporting raw functions or clean service objects. Do not include markdown comments inside code blocks or verbose text explanations between files.
 
+========================================================================
+FEATURE SPECIFICATION SHEET: MODULE 1 (AUTHENTICATION & ACCESS)
+========================================================================
+
+1. BACKEND SCHEMA SPECIFICATION
+Target File Path: `backend/models/User.js`
+Fields to Implement:
+  - email: String (Required, Unique, Lowercase, Trimmed)
+  - passwordHash: String (Required)
+  - role: Enum String (Values: 'doctor', 'patient', Required)
+  - phone: String (Required for patient, Optional for doctor)
+  - isActive: Boolean (Default: true)
+  - doctorProfile: Embedded Object (Conditional, present only if role is 'doctor')
+    * name: String (Required)
+    * specialization: String
+    * qualification: String
+    * experienceYears: Number
+    * bio: String
+    * defaultSlotDurationMins: Number (Default: 15)
+    * avgConsultationMins: Number (Default: 15)
+    * unavailableDates: Array of Objects (date: Date, reason: String)
+  - patientProfile: Embedded Object (Conditional, present only if role is 'patient')
+    * name: String (Required)
+    * dob: Date (Required)
+    * gender: Enum String (Values: 'Male', 'Female', 'Other', Required)
+Constraints & Hooks to Enforce:
+  - Implement a pre-save Mongoose hook: If the password field is modified, automatically hash it using `bcrypt.hash()` with 10 salt rounds before saving to `passwordHash`.
+  - Automatically append standard Mongoose timestamps (createdAt, updatedAt).
+
+2. BACKEND CONTROLLER & SECURE LOGIC
+Target File Path: `backend/controllers/authController.js`
+Operations to Implement:
+  - `registerPatient`:
+    * Accept email, password, phone, and patientProfile (name, dob, gender).
+    * Check if a user with that email already exists. If yes, return a 400 response with { error: "Email is already registered." }.
+    * Create a new User document setting role to 'patient', pass the raw password (let the pre-save hook hash it), save, and return a 201 status code with a success message.
+  - `loginUser`:
+    * Accept email and password parameters.
+    * Find the user by email. If missing, return a 401 response with { error: "Invalid email or password." }.
+    * Compare the raw password with `passwordHash` using `bcrypt.compare()`. If it fails, return a 401 response.
+    * Generate a signed JWT token containing `{ userId: user._id, role: user.role }` using `process.env.JWT_SECRET` expiring in '7d'.
+    * Return a 200 status code with `{ token, role, user: { email, id: user._id } }`.
+
+3. EXPOSED ENDPOINTS (API ROUTES & MIDDLEWARE)
+Target File Paths: `backend/routes/authRoutes.js` and `backend/middleware/authMiddleware.js`
+Logic to Implement:
+  - Middleware (`authMiddleware.js`): Write a `verifyToken` function that intercepts requests, extracts the JWT from the `Authorization: Bearer <token>` header, verifies it, and attaches `{ userId, role }` to `req.user`.
+  - POST `/api/auth/register` -> Public -> calls `registerPatient`
+  - POST `/api/auth/login` -> Public -> calls `loginUser`
+
+4. FRONTEND SERVICE LAYER & AXIOS INTERCEPTOR
+Target File Paths: `frontend/src/api/axiosInstance.js` and `frontend/src/api/authService.js`
+Functions to Implement:
+  - `axiosInstance.js`: Configure an Axios instance with a `baseURL` pointing to `process.env.REACT_APP_API_URL`. Add a request interceptor that reads `localStorage.getItem('token')` and appends it as a `Bearer` token to headers if present.
+  - `login(email, password)` -> POSTs to `/api/auth/login`, saves the returned token and role into `localStorage`.
+  - `register(payload)` -> POSTs to `/api/auth/register`.
+  - `logout()` -> Purges `token` and `role` out of `localStorage`, redirecting to `/login`.
+
+5. FRONTEND UI COMPONENTS (TAILWIND CSS & ROUTING)
+Target Files: `frontend/src/components/Login.jsx`, `frontend/src/components/Register.jsx`, and `frontend/src/App.jsx`
+Views to Autonomously Build:
+  - `Login.jsx`: A centered layout box featuring an email input, password input, and a loading/submit button styled cleanly with Tailwind. Displays inline error messages if credentials fail.
+  - `Register.jsx`: A clean form structure with state handling. Features inputs for basic fields (Email, Password, Phone) and patient-specific profile rules (Full Name, DOB, Gender selector drop-down).
+  - `App.jsx`: Setup `react-router-dom` grids wrapping these views. Secure routes based on `localStorage.getItem('role')` to direct patients and doctors to their respective dashboard frames.
+
+========================================================================
+FEATURE SPECIFICATION SHEET: MODULE 2 (PRACTICE MANAGEMENT)
+========================================================================
+
+1. BACKEND SCHEMA SPECIFICATION
+Target File Path: `backend/models/Clinic.js`
+Fields to Implement:
+  - doctorId: ObjectId (Ref: 'User', Required)
+  - name: String (Required, Trimmed)
+  - address: String (Required, Trimmed)
+  - contactPhone: String (Optional)
+  - status: Enum String (Values: 'active', 'inactive'). Default: 'active'
+  - scheduleRules: Array of Objects (Weekly rule constraints configuration)
+    * dayOfWeek: Enum String (Values: 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', Required)
+    * startTime: String (Required, format e.g., "09:00")
+    * endTime: String (Required, format e.g., "17:00")
+Constraints & Indexes to Enforce:
+  - Automatically append standard Mongoose timestamps (createdAt, updatedAt).
+  - Ensure a single doctor can link and manage multiple Clinic records.
+
+2. BACKEND CONTROLLER & CONFIGURATION LOGIC
+Target File Path: `backend/controllers/clinicController.js`
+Operations to Implement:
+  - `createClinic`:
+    * Accept name, address, contactPhone, and scheduleRules array.
+    * Automatically map the logged-in doctor's identity (`req.user.userId`) to the `doctorId` field.
+    * Save to the database and return a 201 status code.
+  - `getDoctorClinics`:
+    * Query the `Clinic` collection to find all documents matching the authenticated `req.user.userId`.
+    * Return a 200 status code with the matching array payload.
+  - `addUnavailableDate`:
+    * Accept an unavailable date payload (e.g., date: "2026-12-25", reason: "Christmas Holiday").
+    * Target the `User` collection by `req.user.userId` and use Mongoose `$push` operators to write the date object directly into the embedded `doctorProfile.unavailableDates` array.
+  - `getAvailableSlotsForPatient`:
+    * Accept parameters for `clinicId` and a target date string via headers or query parameters.
+    * Step 1: Look up the target clinic's `scheduleRules` to identify if the day of the week matches active operating parameters.
+    * Step 2: Query the doctor's root user file to verify that the target date is not present in the `unavailableDates` collection array.
+    * Step 3: Read the doctor's `defaultSlotDurationMins`.
+    * Step 4: Run a temporal generation script splitting the `startTime` to `endTime` boundaries into structural array strings. Return the list of generated raw slots to the client.
+
+3. EXPOSED ENDPOINTS (API ROUTES)
+Target File Path: `backend/routes/clinicRoutes.js`
+Routes to Mount and Protect:
+  - POST `/api/clinics` -> Protected (Doctor only) -> calls `createClinic`
+  - GET `/api/clinics/my-clinics` -> Protected (Doctor only) -> calls `getDoctorClinics`
+  - PATCH `/api/clinics/unavailable-dates` -> Protected (Doctor only) -> calls `addUnavailableDate`
+  - GET `/api/clinics/:clinicId/slots` -> Protected (Doctor/Patient) -> calls `getAvailableSlotsForPatient`
+
+4. FRONTEND SERVICE LAYER
+Target File Path: `frontend/src/api/clinicService.js`
+Functions to Export:
+  - `createClinic(payload)` -> POSTs to `/api/clinics`
+  - `fetchDoctorClinics()` -> GETs from `/api/clinics/my-clinics`
+  - `setUnavailableDate(payload)` -> PATCHes to `/api/clinics/unavailable-dates`
+  - `fetchAvailableSlots(clinicId, date)` -> GETs from `/api/clinics/${clinicId}/slots?date=${date}`
+
+5. FRONTEND UI COMPONENTS (TAILWIND CSS)
+Target Files: `frontend/src/components/ClinicManager.jsx` and `frontend/src/components/SlotSelector.jsx`
+Views to Autonomously Build:
+  - `ClinicManager.jsx`: A unified workplace dashboard view specifically for doctors.
+    * Displays a list of existing clinic locations inside modern Tailwind flex-wrap grids.
+    * Integrates a popup modal form allowing the doctor to append a new clinic location or define schedule block rows (Day Selector dropdown alongside Start/End Time entry fields).
+    * Integrates an calendar block widget allowing the doctor to log off-duty/leave matrices that update their profile records instantly.
+  - `SlotSelector.jsx`: A reusable interface component used when patients or doctors plan appointments.
+    * Renders a layout grid parsing the generated available slot strings array.
+    * Employs standard disabled attribute styles to visually grey-out slots or let the user click a slot block to update local feature parameters.
+
+---
+Module 3: Appointment Management
+
+Role: Principal Full-Stack MERN Automation Agent.
+Context: We are developing 'DoctorDayPlan v1.0'. You have full read/write access to this workspace. You must autonomously implement the complete backend and frontend layer for [INSERT TARGET MODULE, e.g., Module 3: Appointment Management].
+
+Task: Autonomously write, modify, and wire up all necessary files across the backend and frontend directories to deliver this feature end-to-end. Do not use placeholders or truncated code. Write complete implementations directly to the file system.
+
+Strict Engineering Constraints:
+1. Database: Embed role profiles in the User model. Use independent collections with ObjectId referencing for all other major entities.
+2. Architecture: Isolate business logic completely inside the controllers folder. UI components must stay clean by extracting network logic into services.
+3. PDF Rules: If this module requires document generation, use PDFKit to stream binary files directly to the Express 'res' object. Never write PDFs to disk.
+4. UI Layer: Use modern React functional components. Style exclusively using utility classes from Tailwind CSS.
+
+Execute the following actions directly on the workspace files sequentially:
+
+### PHASE 1: BACKEND DATA & LOGIC LAYER
+1. Inspect existing files. Create the Mongoose schema file at `backend/models/[Target].js`. Enforce validation, indexes, and timestamps.
+2. Create a dedicated controller file at `backend/controllers/[Target]Controller.js`. Write all required asynchronous middleware CRUD operations and business logic wrapped completely in try/catch blocks.
+3. Create the route mappings at `backend/routes/[Target]Routes.js`. Wire the endpoints to the controller methods, protect them with our token verification middleware, and mount the router safely inside `backend/server.js`.
+
+### PHASE 2: FRONTEND UI & INTEGRATION LAYER
+1. Create the client-side API service file at `frontend/src/api/[Target]Service.js`. Implement clean network helper functions using our central Axios instance.
+2. Create the presentation components or views inside `frontend/src/components/`. Build fully responsive, layout-friendly UI views using Tailwind CSS to display and interact with this data.
+3. Mount the new components or views safely into the application route configuration inside `frontend/src/App.jsx`.
+
+### PHASE 3: INTEGRITY VERIFICATION
+1. Generate an automated mock database unit test file inside `backend/__tests__/[Target].test.js` using Jest and Supertest to verify core backend constraints.
+2. Output a structured workspace diff manifest summarizing every single file you created or modified during this execution run.
+
+========================================================================
+FEATURE SPECIFICATION SHEET: MODULE 3 (APPOINTMENT MANAGEMENT)
+========================================================================
+
+1. BACKEND SCHEMA SPECIFICATION
+Target File Path: `backend/models/Appointment.js`
+Fields to Implement:
+  - doctorId: ObjectId (Ref: 'User', Required)
+  - patientId: ObjectId (Ref: 'User', Required)
+  - clinicId: ObjectId (Ref: 'Clinic', Required)
+  - appointmentDate: Date (Required, stores YYYY-MM-DD format)
+  - slotTime: String (Required, format e.g., "10:30")
+  - status: Enum String (Values: 'pending', 'confirmed', 'rejected', 'cancelled', 'completed'). Default: 'pending'
+  - checkedInAt: Date (Optional, defaults to null)
+  - cancelReason: String (Optional)
+Constraints to Enforce:
+  - Add a compound unique index on [clinicId, appointmentDate, slotTime] to programmatically block double-bookings at the database level.
+  - Automatically append standard Mongoose timestamps (createdAt, updatedAt).
+
+2. BACKEND CONTROLLER & BUSINESS LOGIC
+Target File Path: `backend/controllers/appointmentController.js`
+Operations to Implement:
+  - `createAppointment`: 
+    * Validate that clinicId, slotTime, appointmentDate, and doctorId exist in the payload.
+    * Execute a query to check for pre-existing appointments matching the exact [clinicId, appointmentDate, slotTime] profile.
+    * If a match exists, instantly abort and send a 400 response with { error: "This appointment slot is already booked." }.
+    * Otherwise, save the appointment with a 'pending' status and return a 201 status code.
+  - `updateStatus`: 
+    * Allow Doctors to transition states ('confirmed', 'rejected').
+    * Allow Patients to transition states ('cancelled' with a mandatory cancelReason string).
+  - `patientCheckIn`: 
+    * Update status to 'confirmed' (if pending) and set `checkedInAt` to the current system timestamp (`Date.now()`).
+  - `getTodayAppointments`: 
+    * Fetch all appointments matching today's date for a specific `doctorId`, populated with Patient profile names.
+
+3. EXPOSED ENDPOINTS (API ROUTES)
+Target File Path: `backend/routes/appointmentRoutes.js`
+Routes to Mount and Protect:
+  - POST `/api/appointments` -> Protected (Patient only) -> calls `createAppointment`
+  - GET `/api/appointments/today` -> Protected (Doctor only) -> calls `getTodayAppointments`
+  - PATCH `/api/appointments/:id/status` -> Protected (Doctor/Patient) -> calls `updateStatus`
+  - PATCH `/api/appointments/:id/checkin` -> Protected (Patient only) -> calls `patientCheckIn`
+
+4. FRONTEND SERVICE LAYER
+Target File Path: `frontend/src/api/appointmentService.js`
+Functions to Export:
+  - `bookAppointment(payload)` -> POSTs to `/api/appointments`
+  - `fetchTodayAppointments()` -> GETs from `/api/appointments/today`
+  - `updateAppointmentStatus(id, status, cancelReason)` -> PATCHes to `/api/appointments/${id}/status`
+  - `checkInAppointment(id)` -> PATCHes to `/api/appointments/${id}/checkin`
+
+5. FRONTEND UI VIEWS (TAILWIND CSS)
+Target Directory: `frontend/src/components/`
+Components to Autonomously Build:
+  - `AppointmentList.jsx`: A responsive list/grid view using Tailwind.
+    * For Doctors: Renders an active dashboard panel tracking today's list of slots, displaying patient names, times, and clear action buttons to 'Accept', 'Reject', or view check-in markers.
+    * For Patients: Displays a history panel of their bookings tracking live status badges with conditional colors (Green for confirmed, Yellow for pending, Red for rejected/cancelled) and a functional 'Check-In' button if the booking is today.
 
 ---
 
@@ -114,9 +333,43 @@ Provide a clean React hook exposing simple wrapper functions for components to i
 
 Output Format: Provide fully functional JavaScript/JSX code blocks for each file. Ensure zero placeholders (`// implement here...`) are left in the event handlers. Do not include verbose written explanations between the code blocks.
 
+========================================================================
+FEATURE SPECIFICATION SHEET: MODULE 4 (LIVE QUEUE & REAL-TIME UPDATES)
+========================================================================
+
+1. BACKEND REAL-TIME EVENT HANDLER
+Target File Path: `backend/sockets/queueHandler.js`
+Logic to Implement:
+  - Export a standalone module function initializing Socket.io connection streams:
+    * `joinQueueRoom`: Listens for users connecting to a unique room scoped by clinic identity (`socket.join(clinicId)`).
+    * `callNextPatient`: Listens for a doctor pulling the next sequential checked-in appointment. Updates local state buffers, identifies the target patient, and broadcasts the event `queueUpdated` to the specific `clinicId` room room array payload.
+    * `skipPatient`: Listens for a doctor bypassing a patient. Reorders the active queue buffer array index, sends a real-time event signal, and updates room payloads.
+    * `consultationFinished`: Cleans up the queue room matrix by removing the active patient from the live queue tracking array buffer.
+  - Automatically emit the `queueUpdated` broadcast payload object containing: `{ currentPatient, waitingQueueArray, estimatedWaitTime }`.
+
+2. EXPOSED INITIALIZATION HOOK
+Target File Path: `backend/server.js`
+Integration to Enforce:
+  - Refactor the app startup logic to wrap the Express instance inside a native Node HTTP server: `const server = require('http').createServer(app);`.
+  - Instantiate Socket.io: `const io = require('socket.io')(server, { cors: { origin: "*" } });`.
+  - Pass the `io` stream directly into the `queueHandler` script on connection. Ensure the root script updates `app.listen` to `server.listen`.
+
+3. FRONTEND REAL-TIME CONTEXT & CUSTOM HOOK
+Target File Paths: `frontend/src/context/QueueContext.jsx` and `frontend/src/hooks/useLiveQueue.js`
+Logic to Implement:
+  - `QueueContext.jsx`: Build a standard React Context Provider configuring `socket.io-client`. Map runtime states for `liveQueue`, `activePatient`, and `wsConnectionStatus`. Establish standard useEffect hooks to automatically cleanup and drop listeners (`socket.off`) when components unmount.
+  - `useLiveQueue.js`: Export simple wrapper commands: `joinClinicQueue(clinicId)`, `triggerNextPatient(clinicId)`, and `triggerSkipPatient(clinicId)`.
+
+4. FRONTEND LIVE DASHBOARD COMPONENTS (TAILWIND CSS)
+Target File Path: `frontend/src/components/LiveQueue.jsx`
+Views to Autonomously Build:
+  - Create a responsive split-screen queue tracking view:
+    * Doctor Dashboard Panel: Renders full action bars containing 'Call Next Patient' or 'Skip' control buttons that route signals through WebSockets.
+    * Patient Tracker Card: Displays a live flashing status display showing their current placement number, estimated wait timeline, and the name of the patient currently in the consultation room.
+
 ---
 
-## 📄 Module 5: Clinical History & PDF Generation
+## 📄 Module 5: Consultation & Medical Records
 Use this prompt when implementing the medical records lookup and PDFKit direct data streaming:
 
 Role: Senior Backend Engineer and Node.js Streams Expert.
@@ -149,3 +402,49 @@ Generate an Express controller containing production-ready, asynchronous middlew
 - `downloadPrescription`: Fetches full consultation data populated with referenced fields, and immediately invokes the Step 1 PDF utility passing the current HTTP response.
 
 Output Format: Provide raw, robust JavaScript code blocks for both files. Ensure all structural paths match standard Express parameters (`req, res, next`) with explicit try/catch blocks. Do not add markdown annotations or text commentary outside of the code blocks.
+
+========================================================================
+FEATURE SPECIFICATION SHEET: MODULE 5 (CONSULTATION & MEDICAL RECORDS)
+========================================================================
+
+1. BACKEND SCHEMA SPECIFICATION
+Target File Path: `backend/models/Consultation.js`
+Fields to Implement:
+  - appointmentId: ObjectId (Ref: 'Appointment', Required, Unique)
+  - patientId: ObjectId (Ref: 'User', Required)
+  - doctorId: ObjectId (Ref: 'User', Required)
+  - clinicId: ObjectId (Ref: 'Clinic', Required)
+  - diagnosis: String (Required)
+  - clinicalNotes: String
+  - medicines: Array of Objects (Prescription Data)
+    * name: String (Required)
+    * dosage: String (e.g., "1-0-1", Required)
+    * durationDays: Number (Required)
+    * instructions: String (e.g., "After food")
+Constraints to Enforce:
+  - Enforce standard Mongoose timestamps (createdAt, updatedAt).
+
+2. BACKEND CONTROLLER & PDF STREAMING PIPELINE
+Target File Paths: `backend/utils/prescriptionGenerator.js` and `backend/controllers/consultationController.js`
+Logic to Implement:
+  - `prescriptionGenerator.js`: Build a pure streaming function `generatePrescriptionPDF(res, data)`. 
+    * Import `pdfkit`. Configure express header targets `res.setHeader('Content-Type', 'application/pdf')`.
+    * Stream vector data directly into the express socket using `doc.pipe(res)`. 
+    * Render a clean header layout block containing placeholder clinic logos, doctor credentials, clear tabular alignments for the prescribed medicine rows, and close the stream using `doc.end()` safely. Never touch local disk arrays.
+  - `consultationController.js`:
+    * `createConsultation`: Collect variables, store record to the `Consultation` collection, and change the corresponding appointment object status enum to 'completed'.
+    * `getHistory`: Return sorted lookup strings containing previous consultations populated with clinic and doctor profiles.
+    * `downloadPrescription`: Read consultation ID parameters, extract populated arrays from the database, and feed the structural object directly into the PDF utility engine.
+
+3. EXPOSED ENDPOINTS (API ROUTES)
+Target File Path: `backend/routes/consultationRoutes.js`
+Routes to Mount and Protect:
+  - POST `/api/consultations` -> Protected (Doctor only) -> calls `createConsultation`
+  - GET `/api/consultations/patient/:patientId` -> Protected (Doctor/Patient) -> calls `getHistory`
+  - GET `/api/consultations/:id/download` -> Protected (Doctor/Patient) -> calls `downloadPrescription`
+
+4. FRONTEND SERVICE LAYER & VIEWS (TAILWIND CSS)
+Target Files: `frontend/src/api/consultationService.js` and `frontend/src/components/ConsultationWorkspace.jsx`
+Logic to Implement:
+  - Service: Export call mechanisms. Ensure `downloadPrescription` processes payloads utilizing an Axios response configuration type of `blob` to cleanly launch local browser download states.
+  - `ConsultationWorkspace.jsx`: An interactive electronic medical records interface (EMR). Renders diagnosis inputs, medical history timeline feeds, dynamic form arrays to append prescription rows, and a simple download button that triggers native PDF browser downloads instantly.

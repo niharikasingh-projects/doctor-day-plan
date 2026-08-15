@@ -30,22 +30,44 @@ doctor-day-plan/
 │   └── prompts/
 │       └── copilot-library.md             # Context Isolated Prompt Playbook
 ├── backend/               <-- Isolated Backend Workspace Folder
-│   ├── config/            # Database configurations
-│   ├── controllers/       # Business Logic Layer
-│   ├── middleware/        # Auth & Guard Middleware
-│   ├── models/            # Mongoose Relational Schemas
-│   ├── routes/            # Express Endpoint Mapping
-│   ├── utils/             # Math, Logic & Streaming Helpers
+│   ├── config/
+│   │   └── db.js                    # Mongoose connection + event listeners
+│   ├── controllers/
+│   │   ├── authController.js        # registerPatient, registerDoctor, loginUser
+│   │   ├── clinicController.js      # createClinic, getAllClinics, getDoctorClinics, addUnavailableDate, getAvailableSlotsForPatient
+│   │   └── appointmentController.js # createAppointment, updateStatus, patientCheckIn, getTodayAppointments, getMyAppointments
+│   ├── middleware/
+│   │   └── authMiddleware.js        # verifyToken, requireRole
+│   ├── models/
+│   │   ├── User.js                  # role enum + embedded doctorProfile/patientProfile
+│   │   ├── Clinic.js                # doctorId FK + scheduleRules
+│   │   ├── Appointment.js           # clinicId/doctorId/patientId FKs + status enum
+│   │   ├── Consultation.js          # (Module 5 schema — not yet wired to routes/UI)
+│   │   └── Medicine.js              # (Module 5 schema — not yet wired to routes/UI)
+│   ├── routes/
+│   │   ├── authRoutes.js
+│   │   ├── clinicRoutes.js
+│   │   └── appointmentRoutes.js
+│   ├── utils/
+│   │   └── seedData.js              # Dummy doctor/patient/clinic seed script (`npm run seed`)
 │   ├── __tests__/         # Automated Testing Specs
 │   ├── .env               # Secret System Keys & Port Parameters
 │   ├── package.json       # Contains express, mongoose, bcrypt, etc.
-│   └── server.js          # Node Entry Point Core File
+│   └── server.js          # Node Entry Point Core File (mounts auth/clinic/appointment routers)
 ├── frontend/              <-- Isolated Frontend Workspace Folder
 │   ├── src/
-│   │   ├── api/           # Network Interceptors & Services
-│   │   ├── components/    # Functional UI Layer
-│   │   ├── context/       # Live Socket/State Engines
-│   │   └── index.css      # Core Tailwind CSS Imports
+│   │   ├── api/
+│   │   │   ├── axiosInstance.js     # Bearer token + 401/500 response interceptors
+│   │   │   ├── authService.js       # login, register, registerDoctor, logout
+│   │   │   ├── clinicService.js     # createClinic, fetchAllClinics, fetchDoctorClinics, setUnavailableDate, fetchAvailableSlots
+│   │   │   └── appointmentService.js # bookAppointment, fetchTodayAppointments, fetchMyAppointments, updateAppointmentStatus, checkInAppointment
+│   │   ├── components/
+│   │   │   ├── Login.jsx / Register.jsx / ProtectedRoute.jsx
+│   │   │   ├── DoctorDashboard.jsx / PatientDashboard.jsx
+│   │   │   └── ClinicManager.jsx / SlotSelector.jsx / AppointmentList.jsx
+│   │   ├── App.jsx                  # react-router-dom routes + role-based guarding
+│   │   └── index.css                # Core Tailwind CSS Imports
+│   ├── .env                # VITE_API_URL, VITE_SOCKET_URL (Vite project — NOT Create React App)
 │   ├── package.json       # Contains react, vite, axios, etc.
 │   └── vite.config.js     # React UI Platform Configurations
 ├── Dockerfile             # Multi-Stage Image Orchestrator
@@ -111,13 +133,19 @@ Open `frontend/src/index.css` and completely clear out any pre-existing code. Pa
 @import "tailwindcss";
 ```
 
-### 4. Create the Environment File
+### 4. Create the Environment Files
 Create a `.env` file inside your **`backend/`** folder to securely handle parameters locally:
 ```env
 PORT=5000
 NODE_ENV=development
 MONGO_URI=mongodb://localhost:27017/doctordayplan
 JWT_SECRET=super_secret_healthcare_signing_token_change_in_production
+```
+
+Create a separate `.env` file inside your **`frontend/`** folder. Because the frontend is a **Vite** project (not Create React App), environment variables must be prefixed with `VITE_` and are read via `import.meta.env`, not `process.env.REACT_APP_*`:
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SOCKET_URL=http://localhost:5000
 ```
 
 ### 5. Setup the Primary App Server (`backend/server.js`)
@@ -166,6 +194,48 @@ To run your backend business logic unit tests, execute:
 ```bash
 npm run test
 ```
+
+---
+
+## ✅ Implemented Functionality (Modules 1–3)
+
+### Module 1 — Authentication & Access
+* Patient self-registration (`POST /api/auth/register`) and doctor self-registration (`POST /api/auth/register/doctor`); passwords are hashed via a `bcrypt` pre-save hook on the `User` model (never stored in plaintext).
+* JWT login (`POST /api/auth/login`) issuing a 7-day token containing `{ userId, role }`.
+* `verifyToken` / `requireRole` Express middleware protecting all doctor-only and patient-only routes.
+* `Login.jsx` and `Register.jsx` (with a Patient/Doctor toggle) wired through `react-router-dom`; the JWT's `role` claim decides whether a user lands on `/doctor/dashboard` or `/patient/dashboard`, enforced client-side by `ProtectedRoute.jsx`.
+
+### Module 2 — Practice Management (Clinics)
+* Doctors create clinics with weekly `scheduleRules` (`POST /api/clinics`), list their own clinics (`GET /api/clinics/my-clinics`), and log leave/unavailable dates on their profile (`PATCH /api/clinics/unavailable-dates`).
+* Patients (and doctors) browse all active clinics with doctor details populated (`GET /api/clinics`) and fetch generated available time slots for a chosen date (`GET /api/clinics/:clinicId/slots`).
+* `ClinicManager.jsx` handles doctor-side clinic CRUD + the unavailable-date form; the Patient Dashboard offers a clinic dropdown (name, address, doctor) feeding into `SlotSelector.jsx`.
+
+### Module 3 — Appointment Management
+* Patients book slots (`POST /api/appointments`); double-booking is blocked at the database level via a compound unique index on `[clinicId, appointmentDate, slotTime]`.
+* Doctors accept/reject appointments and patients cancel with a reason (`PATCH /api/appointments/:id/status`); patients can check in (`PATCH /api/appointments/:id/checkin`).
+* Doctors view today's queue (`GET /api/appointments/today`); patients view their own booking history (`GET /api/appointments/my`).
+* `AppointmentList.jsx` renders both role-specific views; `DoctorDashboard.jsx` and `PatientDashboard.jsx` tie clinics, slots, and appointments together end-to-end.
+
+> **Not yet wired up:** `Consultation.js` and `Medicine.js` Mongoose schemas (Module 5 — consultation records & PDF prescriptions) exist in `backend/models/` but have no controllers/routes/UI yet.
+
+---
+
+## 🔑 Test Accounts & Seed Data
+
+Populate your local database with sample doctors, patients, and clinics (safe to re-run — it deletes and re-creates matching records each time):
+```bash
+cd backend
+npm run seed
+```
+
+| Role    | Email                          | Password    | Notes                                    |
+|---------|---------------------------------|-------------|-------------------------------------------|
+| Doctor  | `dr.priya@doctordayplan.test`   | `Doctor@123`| Cardiology — owns 2 clinics (Bengaluru)    |
+| Doctor  | `dr.arjun@doctordayplan.test`   | `Doctor@123`| Dermatology — owns 1 clinic (Kolkata)      |
+| Patient | `patient1@doctordayplan.test`   | `Patient@123`| Rahul Verma                               |
+| Patient | `patient2@doctordayplan.test`   | `Patient@123`| Sneha Kapoor                              |
+
+Log in at `/login` with any of the above to explore the Doctor or Patient dashboard immediately without manually registering.
 
 ---
 

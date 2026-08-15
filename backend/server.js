@@ -3,6 +3,9 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 const connectDB = require('./config/db.js'); // Import the db connection script
+const authRoutes = require('./routes/authRoutes');
+const clinicRoutes = require('./routes/clinicRoutes');
+const appointmentRoutes = require('./routes/appointmentRoutes');
 
 const app = express();
 
@@ -20,6 +23,11 @@ app.get('/api/health', (req, res) => {
     message: 'DoctorDayPlan API engine is executing safely.' 
   });
 });
+
+// Feature Module API Routers
+app.use('/api/auth', authRoutes);
+app.use('/api/clinics', clinicRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // Serve Compiled Client UI in Production Environment
 if (process.env.NODE_ENV === 'production') {
