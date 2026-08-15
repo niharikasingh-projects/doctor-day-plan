@@ -28,6 +28,15 @@ const createAppointment = async (req, res) => {
 
     await appointment.save();
 
+    const io = getIO();
+    if (io) {
+      io.to(`user:${appointment.doctorId}`).emit('appointmentUpdated', {
+        appointmentId: String(appointment._id),
+        status: appointment.status,
+        message: `Appointment status updated to ${appointment.status}.`,
+      });
+    }
+
     return res.status(201).json(appointment);
   } catch (error) {
     console.error('createAppointment error:', error);
@@ -126,6 +135,18 @@ const updateStatus = async (req, res) => {
 
     await appointment.save();
 
+    const io = getIO();
+    if (io) {
+      const recipientId = req.user.role === 'doctor' ? appointment.patientId : appointment.doctorId;
+      io.to(`user:${recipientId}`).emit('appointmentUpdated', {
+        appointmentId: String(appointment._id),
+        status: appointment.status,
+        message: req.user.role === 'doctor'
+          ? `Your appointment was ${appointment.status}.`
+          : 'The patient cancelled an appointment.',
+      });
+    }
+
     return res.status(200).json(appointment);
   } catch (error) {
     console.error('updateStatus error:', error);
@@ -165,6 +186,17 @@ const rescheduleAppointment = async (req, res) => {
     appointment.status = 'pending';
     appointment.checkedInAt = null;
     await appointment.save();
+
+    const io = getIO();
+    if (io) {
+      io.to(`user:${appointment.patientId}`).emit('appointmentUpdated', {
+        appointmentId: String(appointment._id),
+        status: appointment.status,
+        appointmentDate: appointment.appointmentDate,
+        slotTime: appointment.slotTime,
+        message: 'Your appointment was rescheduled and is awaiting confirmation.',
+      });
+    }
     return res.status(200).json(appointment);
   } catch (error) {
     console.error('rescheduleAppointment error:', error);

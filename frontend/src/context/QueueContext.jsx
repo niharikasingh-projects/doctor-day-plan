@@ -11,6 +11,7 @@ export function QueueProvider({ children }) {
   const [currentPatient, setCurrentPatient] = useState(null);
   const [estimatedWaitTime, setEstimatedWaitTime] = useState(0);
   const [emergencyNotice, setEmergencyNotice] = useState('');
+  const [appointmentNotice, setAppointmentNotice] = useState('');
   const [isConnecting, setIsConnecting] = useState(true);
 
   useEffect(() => {
@@ -24,11 +25,13 @@ export function QueueProvider({ children }) {
       setEstimatedWaitTime(payload?.estimatedWaitTime || 0);
     };
     const handleDoctorEmergency = (payload) => setEmergencyNotice(payload?.message || 'Your doctor is unavailable. Please reschedule your appointment.');
+    const handleAppointmentUpdated = (payload) => setAppointmentNotice(payload?.message || 'An appointment was updated.');
 
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
     newSocket.on('queueUpdated', handleQueueUpdated);
     newSocket.on('doctorEmergency', handleDoctorEmergency);
+    newSocket.on('appointmentUpdated', handleAppointmentUpdated);
     const userId = localStorage.getItem('userId');
     if (userId) newSocket.emit('joinUserRoom', { userId });
 
@@ -39,11 +42,22 @@ export function QueueProvider({ children }) {
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('queueUpdated', handleQueueUpdated);
       newSocket.off('doctorEmergency', handleDoctorEmergency);
+      newSocket.off('appointmentUpdated', handleAppointmentUpdated);
       newSocket.disconnect();
     };
   }, []);
 
-  const value = { socket, liveQueue, currentPatient, estimatedWaitTime, emergencyNotice, setEmergencyNotice, isConnecting };
+  const value = {
+    socket,
+    liveQueue,
+    currentPatient,
+    estimatedWaitTime,
+    emergencyNotice,
+    setEmergencyNotice,
+    appointmentNotice,
+    setAppointmentNotice,
+    isConnecting,
+  };
 
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;
 }

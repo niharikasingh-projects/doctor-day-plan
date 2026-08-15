@@ -37,17 +37,22 @@ const hydrateQueue = async (io, clinicId, avgConsultationMins = 15) => {
   const appointments = await Appointment.find({
     clinicId,
     checkedInAt: { $ne: null },
-    status: 'confirmed',
+    status: { $in: ['confirmed', 'inConsultation'] },
   }).populate('patientId', 'email patientProfile');
 
   appointments.sort((left, right) => new Date(left.checkedInAt) - new Date(right.checkedInAt));
   appointments.forEach((appointment) => {
-    addPatientToQueue(io, clinicId, {
+    const patientEntry = {
       appointmentId: String(appointment._id),
       patientId: String(appointment.patientId?._id || appointment.patientId),
       patientName: appointment.patientId?.patientProfile?.name || appointment.patientId?.email || 'Patient',
       checkedInAt: appointment.checkedInAt,
-    }, avgConsultationMins);
+    };
+    if (appointment.status === 'inConsultation' && !queue.currentPatient) {
+      queue.currentPatient = patientEntry;
+    } else if (appointment.status === 'confirmed') {
+      addPatientToQueue(io, clinicId, patientEntry, avgConsultationMins);
+    }
   });
   io.to(clinicId).emit('queueUpdated', buildPayload(clinicId, avgConsultationMins));
 };
@@ -85,10 +90,23 @@ const initQueueHandler = (io) => {
       socket.emit('queueUpdated', buildPayload(clinicId, avgConsultationMins));
     });
 
-    socket.on('callNextPatient', ({ clinicId, avgConsultationMins } = {}) => {
+    socket.on('callNextPatient', async ({ clinicId, avgConsultationMins } = {}) => {
       if (!clinicId) return;
       const queue = getOrCreateQueue(clinicId);
+      if (queue.currentPatient) return;
       queue.currentPatient = queue.waitingQueue.shift() || null;
+      if (queue.currentPatient) {
+        await Appointment.findByIdAndUpdate(
+          queue.currentPatient.appointmentId,
+          { $set: { status: 'inConsultation' } },
+          { returnDocument: 'after' }
+        );
+        io.to(`user:${queue.currentPatient.patientId}`).emit('appointmentUpdated', {
+          appointmentId: queue.currentPatient.appointmentId,
+          status: 'inConsultation',
+          message: 'The doctor has called you for consultation.',
+        });
+      }
       io.to(clinicId).emit('queueUpdated', buildPayload(clinicId, avgConsultationMins));
     });
 
@@ -103,10 +121,23 @@ const initQueueHandler = (io) => {
       io.to(clinicId).emit('queueUpdated', buildPayload(clinicId, avgConsultationMins));
     });
 
-    socket.on('consultationFinished', ({ clinicId, avgConsultationMins } = {}) => {
+    socket.on('consultationFinished', async ({ clinicId, avgConsultationMins } = {}) => {
       if (!clinicId) return;
       const queue = getOrCreateQueue(clinicId);
+      const finishedPatient = queue.currentPatient;
       queue.currentPatient = null;
+      if (finishedPatient) {
+        await Appointment.findByIdAndUpdate(
+          finishedPatient.appointmentId,
+          { $set: { status: 'completed' } },
+          { returnDocument: 'after' }
+        );
+        io.to(`user:${finishedPatient.patientId}`).emit('appointmentUpdated', {
+          appointmentId: finishedPatient.appointmentId,
+          status: 'completed',
+          message: 'Your consultation has been completed.',
+        });
+      }
       io.to(clinicId).emit('queueUpdated', buildPayload(clinicId, avgConsultationMins));
     });
   });
