@@ -2,8 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
+const connectDB = require('./config/db.js'); // Import the db connection script
 
 const app = express();
+
+// Establish connectivity right at application boot
+connectDB();
 
 // Middleware Global Configuration
 app.use(cors());
