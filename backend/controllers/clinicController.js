@@ -45,10 +45,63 @@ const getAllClinics = async (req, res) => {
 // GET /api/clinics/my-clinics (Doctor only) — lists clinics owned by the authenticated doctor.
 const getDoctorClinics = async (req, res) => {
   try {
-    const clinics = await Clinic.find({ doctorId: req.user.userId }).sort({ createdAt: -1 });
+    const clinics = await Clinic.find({ doctorId: req.user.userId })
+      .populate('doctorId', 'doctorProfile')
+      .sort({ createdAt: -1 });
     return res.status(200).json(clinics);
   } catch (error) {
     console.error('getDoctorClinics error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// PATCH /api/clinics/:clinicId (Doctor only) — updates clinic details and replaces its weekly schedule.
+const updateClinic = async (req, res) => {
+  try {
+    const { clinicId } = req.params;
+    const { name, address, contactPhone, status, scheduleRules } = req.body;
+    const updates = {};
+
+    if (name !== undefined) updates.name = name;
+    if (address !== undefined) updates.address = address;
+    if (contactPhone !== undefined) updates.contactPhone = contactPhone;
+    if (status !== undefined) updates.status = status;
+    if (scheduleRules !== undefined) updates.scheduleRules = scheduleRules;
+
+    const clinic = await Clinic.findOneAndUpdate(
+      { _id: clinicId, doctorId: req.user.userId },
+      { $set: updates },
+      { new: true, runValidators: true }
+    );
+
+    if (!clinic) {
+      return res.status(404).json({ error: 'Clinic not found or not owned by this doctor.' });
+    }
+
+    return res.status(200).json(clinic);
+  } catch (error) {
+    console.error('updateClinic error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// DELETE /api/clinics/:clinicId (Doctor only) — archives a clinic without breaking historical references.
+const deleteClinic = async (req, res) => {
+  try {
+    const { clinicId } = req.params;
+    const clinic = await Clinic.findOneAndUpdate(
+      { _id: clinicId, doctorId: req.user.userId },
+      { $set: { status: 'inactive' } },
+      { new: true }
+    );
+
+    if (!clinic) {
+      return res.status(404).json({ error: 'Clinic not found or not owned by this doctor.' });
+    }
+
+    return res.status(200).json({ message: 'Clinic archived successfully.', clinic });
+  } catch (error) {
+    console.error('deleteClinic error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
@@ -201,6 +254,8 @@ module.exports = {
   createClinic,
   getAllClinics,
   getDoctorClinics,
+  updateClinic,
+  deleteClinic,
   addUnavailableDate,
   getAvailableSlotsForPatient,
   getMonthlyAvailability,

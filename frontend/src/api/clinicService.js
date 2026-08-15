@@ -10,6 +10,25 @@ export const createClinic = async (payload) => {
 };
 
 /**
+ * Updates clinic details and replaces its weekly schedule rules.
+ * @param {string} clinicId
+ * @param {{ name?: string, address?: string, contactPhone?: string, status?: string, scheduleRules?: Array }} payload
+ */
+export const updateClinic = async (clinicId, payload) => {
+  const { data } = await axiosInstance.patch(`/clinics/${clinicId}`, payload);
+  return data;
+};
+
+/**
+ * Archives a clinic while preserving historical appointment references.
+ * @param {string} clinicId
+ */
+export const deleteClinic = async (clinicId) => {
+  const { data } = await axiosInstance.delete(`/clinics/${clinicId}`);
+  return data;
+};
+
+/**
  * Fetches all active clinics (with populated doctor details) for booking selection.
  */
 export const fetchAllClinics = async () => {

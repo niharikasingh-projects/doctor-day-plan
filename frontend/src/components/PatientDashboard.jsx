@@ -10,6 +10,44 @@ import { bookAppointment, fetchMyAppointments } from '../api/appointmentService'
 import { logout } from '../api/authService';
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`;
+const INDIAN_CITIES = [
+  'Ahmedabad',
+  'Amritsar',
+  'Bengaluru',
+  'Bhopal',
+  'Bhubaneswar',
+  'Chandigarh',
+  'Chennai',
+  'Coimbatore',
+  'Dehradun',
+  'Delhi',
+  'Gurugram',
+  'Guwahati',
+  'Hyderabad',
+  'Indore',
+  'Jaipur',
+  'Jammu',
+  'Kanpur',
+  'Kochi',
+  'Kolkata',
+  'Lucknow',
+  'Ludhiana',
+  'Mumbai',
+  'Mysuru',
+  'Nagpur',
+  'Nashik',
+  'Noida',
+  'Patna',
+  'Pune',
+  'Rajkot',
+  'Ranchi',
+  'Surat',
+  'Thiruvananthapuram',
+  'Vadodara',
+  'Varanasi',
+  'Vijayawada',
+  'Visakhapatnam',
+];
 
 function PatientDashboard() {
   const navigate = useNavigate();
@@ -19,6 +57,7 @@ function PatientDashboard() {
 
   const [clinics, setClinics] = useState([]);
   const [isLoadingClinics, setIsLoadingClinics] = useState(true);
+  const [selectedCity, setSelectedCity] = useState('');
   const [selectedClinicId, setSelectedClinicId] = useState('');
 
   const [calendarYear, setCalendarYear] = useState(today.getFullYear());
@@ -120,6 +159,19 @@ function PatientDashboard() {
     setSelectedSlot('');
   };
 
+  const handleCityChange = (event) => {
+    setSelectedCity(event.target.value);
+    setSelectedClinicId('');
+    setSelectedDate('');
+    setSlots([]);
+    setBookedSlots([]);
+    setSelectedSlot('');
+  };
+
+  const clinicsInSelectedCity = clinics.filter((clinic) =>
+    selectedCity ? clinic.address.toLowerCase().includes(selectedCity.toLowerCase()) : false
+  );
+
   const changeMonth = (delta) => {
     setSelectedDate('');
     setSlots([]);
@@ -215,27 +267,56 @@ function PatientDashboard() {
         {activeTab === 'booking' && <section className="bg-white rounded-xl shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Book an Appointment</h2>
 
-          <div className="mb-4">
-            <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
-              Clinic
-            </label>
-            <select
-              id="clinicSelect"
-              value={selectedClinicId}
-              onChange={handleClinicChange}
-              disabled={isLoadingClinics}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
-            >
-              <option value="" disabled>
-                {isLoadingClinics ? 'Loading clinics...' : 'Select a clinic'}
-              </option>
-              {clinics.map((clinic) => (
-                <option key={clinic._id} value={clinic._id}>
-                  {clinic.name} — {clinic.address}
-                  {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+          <div className="flex flex-wrap gap-4 mb-4">
+            <div>
+              <label htmlFor="citySelect" className="block text-sm font-medium text-gray-700 mb-1">
+                City
+              </label>
+              <select
+                id="citySelect"
+                required
+                value={selectedCity}
+                onChange={handleCityChange}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[220px]"
+              >
+                <option value="" disabled>
+                  Select a city
                 </option>
-              ))}
-            </select>
+                {INDIAN_CITIES.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block">Clinic</span>
+              <select
+                id="clinicSelect"
+                required
+                value={selectedClinicId}
+                onChange={handleClinicChange}
+                disabled={!selectedCity || isLoadingClinics}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
+              >
+                <option value="" disabled>
+                  {!selectedCity
+                    ? 'Select a city first'
+                    : isLoadingClinics
+                      ? 'Loading clinics...'
+                      : clinicsInSelectedCity.length === 0
+                        ? 'No clinics in this city'
+                        : 'Select a clinic'}
+                </option>
+                {clinicsInSelectedCity.map((clinic) => (
+                  <option key={clinic._id} value={clinic._id}>
+                    {clinic.name} — {clinic.address}
+                    {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {selectedClinicId && (

@@ -242,12 +242,13 @@ npm run test
 * `Login.jsx` and `Register.jsx` (with a Patient/Doctor toggle) wired through `react-router-dom`; the JWT's `role` claim decides whether a user lands on `/doctor/dashboard` or `/patient/dashboard`, enforced client-side by `ProtectedRoute.jsx`.
 
 ### Module 2 — Practice Management (Clinics)
-* Doctors create clinics with weekly `scheduleRules` (`POST /api/clinics`), list their own clinics (`GET /api/clinics/my-clinics`), and log leave/unavailable dates on their profile (`PATCH /api/clinics/unavailable-dates`).
+* Doctors create clinics with weekly `scheduleRules` (`POST /api/clinics`), list their own clinics (`GET /api/clinics/my-clinics`), update clinic details/schedules/status (`PATCH /api/clinics/:clinicId`), and deactivate clinics (`DELETE /api/clinics/:clinicId`). Deactivation is a reversible soft action that sets the clinic to `inactive`, stops new bookings, preserves historical references, and can be reversed through the edit form by setting status back to `active`.
 * Patients (and doctors) browse all active clinics with doctor details populated (`GET /api/clinics`) and fetch generated available time slots for a chosen date (`GET /api/clinics/:clinicId/slots`).
-* `ClinicManager.jsx` handles doctor-side clinic CRUD + the unavailable-date form; the Patient Dashboard offers a clinic dropdown (name, address, doctor) feeding into `SlotSelector.jsx`.
+* `ClinicManager.jsx` handles doctor-side clinic create/edit/deactivate actions, weekly schedule-row management, active/inactive status changes, and the unavailable-date form; the Patient Dashboard offers a clinic dropdown (name, address, doctor) feeding into `SlotSelector.jsx`.
 * Patients select a clinic and use a month calendar. The calendar highlights dates with configured clinic hours in green and unavailable/non-operating dates in red. Clicking an available date immediately loads its slots; there is no separate "Find Slots" button.
 * The selected-date slot response includes `slots` (selectable times), `allSlots` (the complete schedule), and `bookedSlots` (times occupied by active appointments). The UI keeps booked times visible but disabled.
 * The Patient Dashboard is split into **Book Appointment** and **My Medical History** tabs. Booking, live queue status, and appointment history stay in the booking tab, while diagnoses, notes, medicines, and prescription downloads are available in the medical-history tab.
+* Clinic booking is city-first: patients choose from major Indian cities, then see only clinics whose address belongs to that city. The current city list includes Ahmedabad, Amritsar, Bengaluru, Bhopal, Bhubaneswar, Chandigarh, Chennai, Coimbatore, Dehradun, Delhi, Gurugram, Guwahati, Hyderabad, Indore, Jaipur, Jammu, Kanpur, Kochi, Kolkata, Lucknow, Ludhiana, Mumbai, Mysuru, Nagpur, Nashik, Noida, Patna, Pune, Rajkot, Ranchi, Surat, Thiruvananthapuram, Vadodara, Varanasi, Vijayawada, and Visakhapatnam.
 
 ### Module 3 — Appointment Management
 * Patients book slots (`POST /api/appointments`); double-booking is blocked at the database level via a compound unique index on `[clinicId, appointmentDate, slotTime]`.
@@ -282,7 +283,7 @@ npm run test
 
 ## 🔑 Test Accounts & Seed Data
 
-Populate your local database with sample doctors, patients, and clinics (safe to re-run — it deletes and re-creates matching records each time):
+Populate your local database with sample doctors, patients, clinics, appointments, medicines, and consultation history (safe to re-run — it deletes and re-creates matching records each time):
 ```bash
 cd backend
 npm run seed
@@ -291,11 +292,20 @@ npm run seed
 | Role    | Email                          | Password    | Notes                                    |
 |---------|---------------------------------|-------------|-------------------------------------------|
 | Doctor  | `dr.priya@doctordayplan.test`   | `Doctor@123`| Cardiology — owns 2 clinics (Bengaluru)    |
-| Doctor  | `dr.arjun@doctordayplan.test`   | `Doctor@123`| Dermatology — owns 1 clinic (Kolkata)      |
+| Doctor  | `dr.arjun@doctordayplan.test`   | `Doctor@123`| Dermatology — owns 2 clinics (Kolkata/Pune) |
 | Patient | `patient1@doctordayplan.test`   | `Patient@123`| Rahul Verma                               |
 | Patient | `patient2@doctordayplan.test`   | `Patient@123`| Sneha Kapoor                              |
 
 Log in at `/login` with any of the above to explore the Doctor or Patient dashboard immediately without manually registering.
+
+The seed script also creates:
+* A checked-in appointment for the live queue screen.
+* A pending appointment for doctor approval/rejection testing.
+* Completed appointments with consultation history and prescription medicines for both patient medical-history and PDF download screens.
+* A Pune appointment for city filtering, clinic selection, and second-patient history testing.
+* Cancelled and rejected appointments for status badges, cancellation reasons, and slot-release testing.
+* Medicine catalog entries for Atorvastatin 10, Cetirizine 10, and Pantoprazole 40.
+* Pune test clinic: **Pune Wellness Centre**, 21 FC Road, Pune, Maharashtra, owned by Dr. Arjun Mehta.
 
 ---
 
