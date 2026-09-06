@@ -23,18 +23,24 @@ export const fetchTodayAppointments = async () => {
 };
 
 /**
- * Fetches all of the authenticated doctor's current & future appointments (any date).
+ * Fetches the authenticated doctor's current & future appointments.
+ * Paginated: pass { page, limit } (default 1/10) or { all: true } for export.
+ * @returns {{ data: Array, pagination: { total: number, page: number, limit: number, totalPages: number } }}
  */
-export const fetchUpcomingAppointments = async () => {
-  const { data } = await axiosInstance.get('/appointments/upcoming');
+export const fetchUpcomingAppointments = async ({ page = 1, limit = 10, all = false } = {}) => {
+  const { data } = await axiosInstance.get('/appointments/upcoming', {
+    params: all ? { all: true } : { page, limit },
+  });
   return data;
 };
 
 /**
- * Fetches the authenticated patient's own bookings.
+ * Fetches the authenticated patient's own bookings (paginated envelope).
  */
-export const fetchMyAppointments = async () => {
-  const { data } = await axiosInstance.get('/appointments/my');
+export const fetchMyAppointments = async ({ page = 1, limit = 10, all = false } = {}) => {
+  const { data } = await axiosInstance.get('/appointments/my', {
+    params: all ? { all: true } : { page, limit },
+  });
   return data;
 };
 

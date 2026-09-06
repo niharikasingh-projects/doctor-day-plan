@@ -58,9 +58,9 @@ function ClinicManager() {
   const [unavailableForm, setUnavailableForm] = useState({ date: '', reason: '' });
   const [unavailableStatus, setUnavailableStatus] = useState('');
 
+  // State updates only happen after the await so the mount effect below never
+  // sets state synchronously (react-hooks/set-state-in-effect).
   const loadClinics = async () => {
-    setIsLoading(true);
-    setError('');
     try {
       const data = await fetchDoctorClinics();
       setClinics(data);
@@ -72,7 +72,11 @@ function ClinicManager() {
   };
 
   useEffect(() => {
-    loadClinics();
+    // Effect-local wrapper: loadClinics only sets state after its await.
+    const load = async () => {
+      await loadClinics();
+    };
+    load();
   }, []);
 
   const handleScheduleRuleChange = (index, field, value) => {
@@ -236,20 +240,32 @@ function ClinicManager() {
         <h2 className="text-xl font-bold text-gray-900 mb-1">Mark unavailable date</h2>
         <p className="text-sm text-gray-500 mb-4">Patients will not see slots for this date.</p>
         <form onSubmit={handleUnavailableSubmit} className="space-y-3">
-          <input
-            type="date"
-            required
-            value={unavailableForm.date}
-            onChange={(event) => setUnavailableForm((prev) => ({ ...prev, date: event.target.value }))}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <input
-            type="text"
-            placeholder="Reason (optional)"
-            value={unavailableForm.reason}
-            onChange={(event) => setUnavailableForm((prev) => ({ ...prev, reason: event.target.value }))}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <div>
+            <label htmlFor="unavailableDate" className="block text-sm font-medium text-gray-700 mb-1">
+              Date
+            </label>
+            <input
+              id="unavailableDate"
+              type="date"
+              required
+              value={unavailableForm.date}
+              onChange={(event) => setUnavailableForm((prev) => ({ ...prev, date: event.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="unavailableReason" className="block text-sm font-medium text-gray-700 mb-1">
+              Reason <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              id="unavailableReason"
+              type="text"
+              placeholder="e.g. Conference leave"
+              value={unavailableForm.reason}
+              onChange={(event) => setUnavailableForm((prev) => ({ ...prev, reason: event.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
           {unavailableStatus && <p className="text-sm text-gray-600">{unavailableStatus}</p>}
           <button
             type="submit"
@@ -267,37 +283,61 @@ function ClinicManager() {
               {editingClinic ? 'Edit Clinic' : 'Add Clinic'}
             </h2>
             <form onSubmit={handleCreateClinic} className="space-y-4">
-              <input
-                type="text"
-                placeholder="Clinic Name"
-                required
-                value={clinicForm.name}
-                onChange={(event) => setClinicForm((prev) => ({ ...prev, name: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Address"
-                required
-                value={clinicForm.address}
-                onChange={(event) => setClinicForm((prev) => ({ ...prev, address: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Contact Phone"
-                value={clinicForm.contactPhone}
-                onChange={(event) => setClinicForm((prev) => ({ ...prev, contactPhone: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <select
-                value={clinicForm.status}
-                onChange={(event) => setClinicForm((prev) => ({ ...prev, status: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+              <div>
+                <label htmlFor="clinicName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Clinic name
+                </label>
+                <input
+                  id="clinicName"
+                  type="text"
+                  placeholder="e.g. Sunrise Heart Clinic"
+                  required
+                  value={clinicForm.name}
+                  onChange={(event) => setClinicForm((prev) => ({ ...prev, name: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="clinicAddress" className="block text-sm font-medium text-gray-700 mb-1">
+                  Address
+                </label>
+                <input
+                  id="clinicAddress"
+                  type="text"
+                  placeholder="e.g. 12 MG Road, Bengaluru, Karnataka"
+                  required
+                  value={clinicForm.address}
+                  onChange={(event) => setClinicForm((prev) => ({ ...prev, address: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="clinicPhone" className="block text-sm font-medium text-gray-700 mb-1">
+                  Contact phone <span className="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  id="clinicPhone"
+                  type="tel"
+                  placeholder="e.g. +918012345678"
+                  value={clinicForm.contactPhone}
+                  onChange={(event) => setClinicForm((prev) => ({ ...prev, contactPhone: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="clinicStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <select
+                  id="clinicStatus"
+                  value={clinicForm.status}
+                  onChange={(event) => setClinicForm((prev) => ({ ...prev, status: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
 
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">Weekly Schedule</h3>

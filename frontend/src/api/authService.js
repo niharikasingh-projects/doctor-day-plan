@@ -41,6 +41,43 @@ export const getProfile = async () => {
   return data;
 };
 
+/**
+ * Fetches public, non-secret runtime config (e.g. whether notifications are on).
+ */
+export const fetchPublicConfig = async () => {
+  const { data } = await axiosInstance.get('/auth/config');
+  return data;
+};
+
+/**
+ * Requests a password reset code for the given email. When notifications are
+ * enabled the code is emailed (never returned); otherwise non-production
+ * responses include the code for local testing.
+ * @param {string} email
+ */
+export const requestPasswordReset = async (email) => {
+  const { data } = await axiosInstance.post('/auth/forgot-password', { email });
+  return data;
+};
+
+/**
+ * Resets the password using the code from the forgot-password step.
+ * @param {{ email: string, token: string, newPassword: string }} payload
+ */
+export const resetPassword = async (payload) => {
+  const { data } = await axiosInstance.post('/auth/reset-password', payload);
+  return data;
+};
+
+/**
+ * Fetches a doctor's public profile (incl. license number) and their clinics.
+ * @param {string} doctorId
+ */
+export const fetchDoctorPublicProfile = async (doctorId) => {
+  const { data } = await axiosInstance.get(`/auth/doctors/${doctorId}`);
+  return data;
+};
+
 export const updateProfile = async (payload) => {
   const { data } = await axiosInstance.patch('/auth/profile', payload);
   if (data?.doctorProfile?.name || data?.patientProfile?.name) {

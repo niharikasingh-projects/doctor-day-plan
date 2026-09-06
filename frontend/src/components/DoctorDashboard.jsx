@@ -13,6 +13,7 @@ import { useQueueContext } from '../context/QueueContext';
 function DoctorDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('clinics');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const doctorName = localStorage.getItem('name');
 
   const [clinics, setClinics] = useState([]);
@@ -64,60 +65,97 @@ function DoctorDashboard() {
     }
   };
 
+  const DOCTOR_TABS = [
+    { id: 'clinics', label: 'Clinics' },
+    { id: 'appointments', label: 'Appointments' },
+    { id: 'queue', label: 'Live Queue' },
+    { id: 'records', label: 'Patient Records' },
+    { id: 'profile', label: 'Profile' },
+  ];
+
+  const handleTabSelect = (tabId) => {
+    setActiveTab(tabId);
+    setIsMenuOpen(false);
+  };
+
   return (
     <div className="app-shell">
-      <header className="app-header flex items-center justify-between gap-5">
+      <header className="app-header flex flex-wrap items-center justify-between gap-3 sm:gap-5">
         <div>
           <Link to="/" className="brand-mark text-lg font-bold no-underline">
             DoctorDayPlan
           </Link>
           <p className="text-xs text-gray-500 mt-1">Practice command center {doctorName && `· Dr. ${doctorName}`}</p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap justify-end">
-          <nav className="tab-strip">
-            <button
-              type="button"
-              onClick={() => setActiveTab('clinics')}
-              aria-current={activeTab === 'clinics' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'clinics' ? 'is-active' : ''}`}
-            >
-              Clinics
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('appointments')}
-              aria-current={activeTab === 'appointments' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'appointments' ? 'is-active' : ''}`}
-            >
-              Appointments
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('queue')}
-              aria-current={activeTab === 'queue' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'queue' ? 'is-active' : ''}`}
-            >
-              Live Queue
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('records')}
-              aria-current={activeTab === 'records' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'records' ? 'is-active' : ''}`}
-            >
-              Patient Records
-            </button>
-            <button type="button" onClick={() => setActiveTab('profile')} aria-current={activeTab === 'profile' ? 'page' : undefined} className={`tab-button ${activeTab === 'profile' ? 'is-active' : ''}`}>
-              Profile
-            </button>
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
+          {/* Collapsible hamburger menu — mobile only */}
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            aria-expanded={isMenuOpen}
+            aria-controls="doctor-mobile-menu"
+            aria-label="Toggle navigation menu"
+            className="hamburger-button"
+          >
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+          </button>
+
+          {/* Inline tab strip — desktop/tablet only */}
+          <nav className="tab-strip overflow-x-auto max-w-full hidden md:flex">
+            {DOCTOR_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabSelect(tab.id)}
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`tab-button ${activeTab === tab.id ? 'is-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </nav>
-          <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
+          <button type="button" onClick={handleLogout} className="hidden md:inline-block text-sm font-bold text-red-600 hover:underline">
             Logout
           </button>
-          <button type="button" onClick={() => setIsEmergencyDialogOpen(true)} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700">
+          <button type="button" onClick={() => { setIsMenuOpen(false); setIsEmergencyDialogOpen(true); }} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700">
             SOS
           </button>
         </div>
+
+        {/* Collapsible mobile menu */}
+        {isMenuOpen && (
+          <div id="doctor-mobile-menu" className="mobile-menu">
+            <nav className="flex flex-col gap-1">
+              {DOCTOR_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleTabSelect(tab.id)}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                  className={`mobile-menu-item ${activeTab === tab.id ? 'is-active' : ''}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => { setIsMenuOpen(false); setIsEmergencyDialogOpen(true); }}
+                className="mobile-menu-item text-red-600"
+              >
+                SOS — Emergency cancellation
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mobile-menu-item text-red-600"
+              >
+                Logout
+              </button>
+            </nav>
+          </div>
+        )}
       </header>
 
       <main className="dashboard-main">
@@ -133,11 +171,11 @@ function DoctorDashboard() {
         {activeTab === 'records' && <PatientRecords />}
         {activeTab === 'profile' && <ProfilePanel />}
         {activeTab === 'queue' && (
-          <div className="p-6 max-w-2xl mx-auto space-y-4">
+          <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-4">
             <select
               value={selectedClinicId}
               onChange={(event) => setSelectedClinicId(event.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px] w-full sm:w-auto"
             >
               <option value="" disabled>
                 Select a clinic

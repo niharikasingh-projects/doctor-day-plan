@@ -7,7 +7,9 @@
     "backend": "cd backend && nodemon server.js",
     "frontend": "cd frontend && npm run dev",
     "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
-    "test": "cd backend && jest --runInBand --detectOpenHandles"
+    "test": "cd backend && jest --runInBand --detectOpenHandles",
+    "seed": "cd backend && node utils/seedData.js",
+    "migrate": "cd backend && node utils/migrateLicenseNumbers.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

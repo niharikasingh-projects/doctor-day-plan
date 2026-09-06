@@ -3,7 +3,10 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
-require('dotenv').config();
+
+const envFileName = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
+require('dotenv').config({ path: path.resolve(__dirname, envFileName) });
+
 const connectDB = require('./config/db.js'); // Import the db connection script
 const authRoutes = require('./routes/authRoutes');
 const clinicRoutes = require('./routes/clinicRoutes');

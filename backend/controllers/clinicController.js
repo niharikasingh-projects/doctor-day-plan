@@ -1,14 +1,42 @@
 const Clinic = require('../models/Clinic');
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
+const { isValidPhone, isValidTime } = require('../utils/validators');
+
+const SCHEDULE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+// Validates an array of weekly schedule rules; returns an error message or null.
+const validateScheduleRules = (scheduleRules) => {
+  if (scheduleRules === undefined) return null;
+  if (!Array.isArray(scheduleRules)) return 'scheduleRules must be an array.';
+  for (const rule of scheduleRules) {
+    if (!rule || !SCHEDULE_DAYS.includes(rule.dayOfWeek)) {
+      return 'Each schedule rule requires a valid dayOfWeek.';
+    }
+    if (!isValidTime(rule.startTime) || !isValidTime(rule.endTime)) {
+      return 'Schedule rule times must be in HH:mm 24-hour format.';
+    }
+    if (rule.startTime >= rule.endTime) {
+      return 'Schedule rule startTime must be earlier than endTime.';
+    }
+  }
+  return null;
+};
 
 // POST /api/clinics (Doctor only) — creates a new clinic owned by the authenticated doctor.
 const createClinic = async (req, res) => {
   try {
     const { name, address, contactPhone, scheduleRules } = req.body;
 
-    if (!name || !address) {
+    if (!name || !String(name).trim() || !address || !String(address).trim()) {
       return res.status(400).json({ error: 'name and address are required.' });
+    }
+    if (contactPhone && !isValidPhone(contactPhone)) {
+      return res.status(400).json({ error: 'Please provide a valid contact phone number (7-15 digits, optional +).' });
+    }
+    const scheduleError = validateScheduleRules(scheduleRules);
+    if (scheduleError) {
+      return res.status(400).json({ error: scheduleError });
     }
 
     const clinic = new Clinic({
@@ -28,12 +56,15 @@ const createClinic = async (req, res) => {
   }
 };
 
-// GET /api/clinics (Doctor/Patient) — lists active clinics with doctor details for browsing/booking.
+// GET /api/clinics (Doctor/Patient) — lists ALL clinics (active first, then closed)
+// with doctor details. Closed (inactive) clinics are included so the patient booking
+// UI can show them as disabled, clearly marked "Closed" — booking them is rejected
+// server-side in createAppointment.
 const getAllClinics = async (req, res) => {
   try {
-    const clinics = await Clinic.find({ status: 'active' })
+    const clinics = await Clinic.find({})
       .populate('doctorId', 'email doctorProfile.name doctorProfile.specialization')
-      .sort({ name: 1 });
+      .sort({ status: 1, name: 1 });
 
     return res.status(200).json(clinics);
   } catch (error) {
@@ -62,11 +93,31 @@ const updateClinic = async (req, res) => {
     const { name, address, contactPhone, status, scheduleRules } = req.body;
     const updates = {};
 
-    if (name !== undefined) updates.name = name;
-    if (address !== undefined) updates.address = address;
-    if (contactPhone !== undefined) updates.contactPhone = contactPhone;
-    if (status !== undefined) updates.status = status;
-    if (scheduleRules !== undefined) updates.scheduleRules = scheduleRules;
+    if (name !== undefined) {
+      if (!String(name).trim()) return res.status(400).json({ error: 'name cannot be empty.' });
+      updates.name = name;
+    }
+    if (address !== undefined) {
+      if (!String(address).trim()) return res.status(400).json({ error: 'address cannot be empty.' });
+      updates.address = address;
+    }
+    if (contactPhone !== undefined) {
+      if (contactPhone && !isValidPhone(contactPhone)) {
+        return res.status(400).json({ error: 'Please provide a valid contact phone number (7-15 digits, optional +).' });
+      }
+      updates.contactPhone = contactPhone;
+    }
+    if (status !== undefined) {
+      if (!['active', 'inactive'].includes(status)) {
+        return res.status(400).json({ error: 'status must be either active or inactive.' });
+      }
+      updates.status = status;
+    }
+    if (scheduleRules !== undefined) {
+      const scheduleError = validateScheduleRules(scheduleRules);
+      if (scheduleError) return res.status(400).json({ error: scheduleError });
+      updates.scheduleRules = scheduleRules;
+    }
 
     const clinic = await Clinic.findOneAndUpdate(
       { _id: clinicId, doctorId: req.user.userId },
@@ -111,8 +162,8 @@ const addUnavailableDate = async (req, res) => {
   try {
     const { date, reason } = req.body;
 
-    if (!date) {
-      return res.status(400).json({ error: 'date is required.' });
+    if (!date || Number.isNaN(new Date(date).getTime())) {
+      return res.status(400).json({ error: 'A valid date is required.' });
     }
 
     const user = await User.findOneAndUpdate(

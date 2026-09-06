@@ -11,6 +11,7 @@ function ConsultationWorkspace({ appointment, onClose, onCompleted }) {
   const [medicines, setMedicines] = useState([{ ...EMPTY_MEDICINE }]);
   const [history, setHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [downloadingId, setDownloadingId] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,8 +21,8 @@ function ConsultationWorkspace({ appointment, onClose, onCompleted }) {
     const loadHistory = async () => {
       setIsLoadingHistory(true);
       try {
-        const data = await fetchPatientHistory(patientId);
-        setHistory(data);
+        const result = await fetchPatientHistory(patientId);
+        setHistory(result.data || []);
       } catch (err) {
         setError(err.response?.data?.error || 'Unable to load patient history.');
       } finally {
@@ -31,6 +32,18 @@ function ConsultationWorkspace({ appointment, onClose, onCompleted }) {
 
     loadHistory();
   }, [patientId]);
+
+  const handleDownload = async (consultationId) => {
+    setError('');
+    setDownloadingId(consultationId);
+    try {
+      await downloadPrescription(consultationId);
+    } catch (err) {
+      setError(err.message || err.response?.data?.error || 'Unable to download prescription.');
+    } finally {
+      setDownloadingId('');
+    }
+  };
 
   const handleMedicineChange = (index, field, value) => {
     setMedicines((prev) => {
@@ -201,10 +214,11 @@ function ConsultationWorkspace({ appointment, onClose, onCompleted }) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => downloadPrescription(entry._id)}
-                    className="text-sm text-blue-600 hover:underline"
+                    onClick={() => handleDownload(entry._id)}
+                    disabled={downloadingId === entry._id}
+                    className="text-sm text-blue-600 hover:underline disabled:opacity-50"
                   >
-                    Download PDF
+                    {downloadingId === entry._id ? 'Downloading...' : 'Download PDF'}
                   </button>
                 </div>
               ))}

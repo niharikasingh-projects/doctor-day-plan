@@ -35,9 +35,14 @@ export function QueueProvider({ children }) {
     const userId = localStorage.getItem('userId');
     if (userId) newSocket.emit('joinUserRoom', { userId });
 
-    setSocket(newSocket);
+    // Deferred to a microtask so the effect body never sets state synchronously.
+    let isActive = true;
+    Promise.resolve().then(() => {
+      if (isActive) setSocket(newSocket);
+    });
 
     return () => {
+      isActive = false;
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('queueUpdated', handleQueueUpdated);
@@ -62,6 +67,8 @@ export function QueueProvider({ children }) {
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;
 }
 
+// Context modules intentionally export the provider and its consumer hook together.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useQueueContext() {
   const context = useContext(QueueContext);
   if (!context) {

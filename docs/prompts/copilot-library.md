@@ -448,3 +448,53 @@ Target Files: `frontend/src/api/consultationService.js` and `frontend/src/compon
 Logic to Implement:
   - Service: Export call mechanisms. Ensure `downloadPrescription` processes payloads utilizing an Axios response configuration type of `blob` to cleanly launch local browser download states.
   - `ConsultationWorkspace.jsx`: An interactive electronic medical records interface (EMR). Renders diagnosis inputs, medical history timeline feeds, dynamic form arrays to append prescription rows, and a simple download button that triggers native PDF browser downloads instantly.
+
+========================================================================
+FEATURE SPECIFICATION SHEET: v1.1 ADDENDUM (IMPLEMENTED 2026-09)
+========================================================================
+
+1. FORGOT / RESET PASSWORD
+  - `POST /api/auth/forgot-password` (Public): validates email, stores sha256-hashed token in `User.passwordResetToken` + `User.passwordResetExpires` (both `select: false`, 15-minute TTL). Generic response always; raw `resetToken` included only when `NODE_ENV !== 'production'` (no email service configured — surfaced in the UI as "demo mode").
+  - `POST /api/auth/reset-password` (Public): validates email + token + password strength (≥8 chars, letter + number), one-time use, clears token fields.
+  - Frontend: `Login.jsx` carries three views (`login` | `forgot` | `reset`).
+
+2. FORM LABELS & SUGGESTION PLACEHOLDERS
+  - Every text input/select/textarea has an explicit `<label htmlFor>` and an example placeholder (`e.g. MCI-12345`, `e.g. +919876543210`). Applies to `Login`, `Register`, `ProfilePanel` (both patient and doctor forms), `ClinicManager`, and `PatientRecords` search (`Search by patient name, email, phone, or diagnosis/illness (e.g. diabetes)`).
+
+3. CITY-GATED CLINIC DROPDOWN & CLOSED CLINICS
+  - `PatientDashboard.jsx` renders the clinic `<select>` only after a city is chosen.
+  - `GET /api/clinics` returns ALL clinics sorted active-first; inactive clinics render as disabled options suffixed `— Closed`.
+  - `POST /api/appointments` rejects bookings against inactive clinics (400) and against dates in the past (400); `doctorId` must match the clinic's doctor.
+
+4. SEARCH BY DIAGNOSIS / ILLNESS
+  - `GET /api/consultations/search?query=` matches patient name/email/phone AND this doctor's consultation `diagnosis` text (escaped regex). Diagnosis hits include `matchedDiagnoses: string[]`, displayed as badges in `PatientRecords.jsx`.
+
+5. EXCEL EXPORT (DOCTOR)
+  - Shared helper `frontend/src/utils/exportExcel.js` (SheetJS `xlsx`): `exportToExcel(rows, fileName, sheetName)` with `appointmentToRow` / `consultationToRow` flatteners.
+  - `AppointmentList.jsx` (doctor): "Export to Excel" fetches `/api/appointments/upcoming?all=true`.
+  - `MedicalHistory.jsx`: export of `/api/consultations/patient/:patientId?all=true`.
+
+6. PAGINATION ENVELOPE
+  - Endpoints return `{ data, pagination: { total, page, limit, totalPages } }`: `/api/appointments/upcoming`, `/api/appointments/my`, `/api/consultations/patient/:patientId`, `/api/consultations/search`. Query params: `page` (default 1), `limit` (default 10, max 100), `all=true` (export, server-capped at 5000).
+  - Frontend: shared `frontend/src/components/Pagination.jsx` controls; `backend/utils/validators.js` exposes `getPagination()` / `buildPaginationMeta()`.
+
+7. DOCTOR LICENSE & PUBLIC DOCTOR PROFILE
+  - `doctorProfile.licenseNumber`: required, `/^[A-Za-z0-9\-/]{5,20}$/`, sparse unique index. Enforced in `registerDoctor` and `updateProfile` (dot-notation `$set` preserves omitted sub-fields).
+  - `GET /api/auth/doctors/:doctorId` (Doctor/Patient): public profile incl. license number + clinics; rendered by `frontend/src/components/DoctorProfileModal.jsx`, opened from the booking flow and the patient bookings list.
+
+8. RESPONSIVE / MOBILE
+  - Headers wrap (`flex flex-wrap`), tab strips scroll horizontally below 760px, booking grid collapses to one column, tables keep `overflow-x-auto`, pagination centers on small screens.
+
+9. PDF DOWNLOAD HARDENING
+  - `consultationService.downloadPrescription` verifies `content-type: application/pdf` before saving (JSON error blobs are parsed and thrown), and delays `URL.revokeObjectURL` by ~1s to avoid browser download cancellation.
+
+10. VALIDATION LAYER
+  - `backend/utils/validators.js`: `isValidEmail`, `isValidPhone`, `isValidPassword`, `isValidObjectId`, `isValidTime`, `isValidLicenseNumber`, `isPresentOrFutureDate`, `isPastDate`, `getPagination`, `buildPaginationMeta`. All public mutating endpoints validate with these helpers; React mirrors with HTML5 attrs + friendly errors.
+
+11. SEED BULK DATA
+  - `backend/utils/seedData.js`: doctors carry license numbers (`MCI-10001`, `MCI-10002`); creates 40 mock patients (`mock.patient.N@doctordayplan.test`, password `Patient@123`); generates ≥1000 appointment records per test doctor and ≥100 per named test patient, with consultations for completed ones; chunked `insertMany`, unique slot-key de-dupe; safe to re-run (deletes prior seed + mock data first).
+
+12. POST-CHANGE VERIFICATION (MANDATORY)
+  - `backend`: `npm.cmd test` — all Jest suites green, incl. guardrail tests for license enforcement, forgot/reset flow, diagnosis search, pagination envelope, closed-clinic booking rejection, and PDF streaming (`%PDF` magic bytes).
+  - `frontend`: `npm.cmd run build` and `npm.cmd run lint` — zero errors.
+  - Review checklist: no placeholders, no silent catches, envelope shape preserved, socket cleanup intact, no hardcoded secrets.

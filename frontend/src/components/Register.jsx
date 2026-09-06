@@ -13,9 +13,28 @@ function Register() {
     dob: '',
     gender: 'Female',
     specialization: '',
+    licenseNumber: '',
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Switching Patient/Doctor starts the form fresh — no leaked field values
+  // (e.g. a license number typed on the doctor tab) and no stale error messages.
+  const handleRoleChange = (nextRole) => {
+    if (nextRole === role) return;
+    setRole(nextRole);
+    setFormData({
+      email: '',
+      password: '',
+      phone: '',
+      name: '',
+      dob: '',
+      gender: 'Female',
+      specialization: '',
+      licenseNumber: '',
+    });
+    setError('');
+  };
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -25,6 +44,20 @@ function Register() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+
+    if (role === 'doctor' && !/^[A-Za-z0-9\-/]{5,20}$/.test(formData.licenseNumber.trim())) {
+      setError('Medical license number must be 5-20 characters (letters, digits, "-" or "/").');
+      return;
+    }
+    if (!/^(?=.*[A-Za-z])(?=.*[0-9]).{8,}$/.test(formData.password)) {
+      setError('Password must be at least 8 characters and contain a letter and a number.');
+      return;
+    }
+    if (formData.phone && !/^\+?[0-9]{7,15}$/.test(formData.phone.trim())) {
+      setError('Please enter a valid phone number (7-15 digits, optional leading +).');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -36,6 +69,7 @@ function Register() {
           doctorProfile: {
             name: formData.name,
             specialization: formData.specialization,
+            licenseNumber: formData.licenseNumber.trim(),
           },
         });
       } else {
@@ -60,19 +94,19 @@ function Register() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-10">
-      <div className="surface w-full max-w-md p-8 md:p-10">
+      <div className="surface w-full max-w-md p-6 sm:p-8 md:p-10">
         <Link to="/" className="brand-mark text-xl font-bold mb-10 no-underline">
           DoctorDayPlan
         </Link>
         <p className="eyebrow mb-2">Get started</p>
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">
           {role === 'doctor' ? 'Doctor Registration' : 'Patient Registration'}
         </h1>
 
         <div className="flex rounded-lg border border-gray-300 overflow-hidden mb-6">
           <button
             type="button"
-            onClick={() => setRole('patient')}
+            onClick={() => handleRoleChange('patient')}
             className={`flex-1 py-2 text-sm font-medium ${
               role === 'patient' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
@@ -81,7 +115,7 @@ function Register() {
           </button>
           <button
             type="button"
-            onClick={() => setRole('doctor')}
+            onClick={() => handleRoleChange('doctor')}
             className={`flex-1 py-2 text-sm font-medium ${
               role === 'doctor' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
@@ -100,6 +134,8 @@ function Register() {
               name="email"
               type="email"
               required
+              placeholder="e.g. you@example.com"
+              autoComplete="email"
               value={formData.email}
               onChange={handleChange}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -115,6 +151,8 @@ function Register() {
               type="password"
               required
               minLength={8}
+              placeholder="Min 8 chars, with a letter and a number"
+              autoComplete="new-password"
               value={formData.password}
               onChange={handleChange}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -129,6 +167,7 @@ function Register() {
               name="phone"
               type="tel"
               required={role === 'patient'}
+              placeholder="e.g. +919876543210"
               value={formData.phone}
               onChange={handleChange}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -143,6 +182,7 @@ function Register() {
               name="name"
               type="text"
               required
+              placeholder="e.g. Priya Sharma"
               value={formData.name}
               onChange={handleChange}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -150,20 +190,37 @@ function Register() {
           </div>
 
           {role === 'doctor' ? (
-            <div>
-              <label htmlFor="specialization" className="block text-sm font-medium text-gray-700 mb-1">
-                Specialization
-              </label>
-              <input
-                id="specialization"
-                name="specialization"
-                type="text"
-                placeholder="e.g. Cardiology"
-                value={formData.specialization}
-                onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <>
+              <div>
+                <label htmlFor="licenseNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  Medical License Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="licenseNumber"
+                  name="licenseNumber"
+                  type="text"
+                  required
+                  placeholder="e.g. MCI-12345"
+                  value={formData.licenseNumber}
+                  onChange={handleChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="specialization" className="block text-sm font-medium text-gray-700 mb-1">
+                  Specialization
+                </label>
+                <input
+                  id="specialization"
+                  name="specialization"
+                  type="text"
+                  placeholder="e.g. Cardiology"
+                  value={formData.specialization}
+                  onChange={handleChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </>
           ) : (
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -175,6 +232,7 @@ function Register() {
                   name="dob"
                   type="date"
                   required
+                  max={new Date().toISOString().slice(0, 10)}
                   value={formData.dob}
                   onChange={handleChange}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

@@ -62,7 +62,7 @@ function Calendar({ year, month, availability, isLoading, selectedDate, onSelect
           const isSelected = dateKey === selectedDate;
           const isDisabled = isPast || isAvailable === false || isLoading;
 
-          let stateClasses = 'text-gray-300';
+          let stateClasses;
           if (isPast) {
             stateClasses = 'text-gray-300 cursor-not-allowed';
           } else if (isLoading) {

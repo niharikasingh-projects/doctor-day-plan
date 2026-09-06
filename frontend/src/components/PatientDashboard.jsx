@@ -6,6 +6,7 @@ import AppointmentList from './AppointmentList';
 import LiveQueue from './LiveQueue';
 import MedicalHistory from './MedicalHistory';
 import ProfilePanel from './ProfilePanel';
+import DoctorProfileModal from './DoctorProfileModal';
 import { fetchAvailableSlots, fetchAllClinics, fetchMonthlyAvailability } from '../api/clinicService';
 import { bookAppointment, fetchMyAppointments } from '../api/appointmentService';
 import { logout } from '../api/authService';
@@ -56,6 +57,7 @@ function PatientDashboard() {
   const today = new Date();
   const patientName = localStorage.getItem('name');
   const [activeTab, setActiveTab] = useState('booking');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const [clinics, setClinics] = useState([]);
   const [isLoadingClinics, setIsLoadingClinics] = useState(true);
@@ -75,12 +77,13 @@ function PatientDashboard() {
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
+  const [profileDoctorId, setProfileDoctorId] = useState('');
   const { emergencyNotice, setEmergencyNotice, appointmentNotice, setAppointmentNotice } = useQueueContext();
 
   useEffect(() => {
     const loadActiveAppointment = async () => {
       try {
-        const data = await fetchMyAppointments();
+        const { data } = await fetchMyAppointments({ all: true });
         const checkedInToday = data.find(
           (appt) =>
             appt.checkedInAt &&
@@ -114,7 +117,9 @@ function PatientDashboard() {
 
   useEffect(() => {
     if (!selectedClinicId) {
-      setAvailability({});
+      // Deferred to a microtask: synchronous setState inside an effect body
+      // triggers a cascading render (react-hooks/set-state-in-effect).
+      Promise.resolve().then(() => setAvailability({}));
       return;
     }
 
@@ -155,11 +160,17 @@ function PatientDashboard() {
   };
 
   const handleClinicChange = (event) => {
+    // Reset the previous clinic's calendar and slot view so no stale
+    // availability, date, or slot selection carries over to the new clinic.
     setSelectedClinicId(event.target.value);
+    setAvailability({});
     setSelectedDate('');
     setSlots([]);
     setDisabledSlots([]);
     setSelectedSlot('');
+    setStatus('');
+    setCalendarYear(today.getFullYear());
+    setCalendarMonth(today.getMonth());
   };
 
   const handleCityChange = (event) => {
@@ -171,9 +182,15 @@ function PatientDashboard() {
     setSelectedSlot('');
   };
 
-  const clinicsInSelectedCity = clinics.filter((clinic) =>
-    selectedCity ? clinic.address.toLowerCase().includes(selectedCity.toLowerCase()) : false
-  );
+  // Word-boundary contains match so short city names (e.g. "Pune") cannot
+  // partially match inside longer ones (e.g. a street named "Puneeth"), while
+  // still matching addresses like "Viman Nagar, Pune". Closed clinics are
+  // never filtered out here — they render disabled with a "Closed" marker.
+  const clinicsInSelectedCity = clinics.filter((clinic) => {
+    if (!selectedCity) return false;
+    const addressPattern = new RegExp(`(^|[^a-z])${selectedCity.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`);
+    return addressPattern.test((clinic.address || '').toLowerCase());
+  });
 
   const changeMonth = (delta) => {
     setSelectedDate('');
@@ -216,6 +233,10 @@ function PatientDashboard() {
     if (!selectedSlot) return;
     const clinic = clinics.find((item) => item._id === selectedClinicId);
     if (!clinic) return;
+    if (clinic.status !== 'active') {
+      setStatus('This clinic is currently closed and is not accepting bookings.');
+      return;
+    }
 
     try {
       await bookAppointment({
@@ -232,49 +253,86 @@ function PatientDashboard() {
     }
   };
 
+  const PATIENT_TABS = [
+    { id: 'booking', label: 'Book Appointment' },
+    { id: 'bookings', label: 'My Bookings' },
+    { id: 'history', label: 'My Medical History' },
+    { id: 'profile', label: 'Profile' },
+  ];
+
+  const handleTabSelect = (tabId) => {
+    setActiveTab(tabId);
+    setIsMenuOpen(false);
+  };
+
   return (
     <div className="app-shell">
-      <header className="app-header flex items-center justify-between gap-5">
+      <header className="app-header flex flex-wrap items-center justify-between gap-3 sm:gap-5">
         <div>
           <Link to="/" className="brand-mark text-lg font-bold no-underline">
             DoctorDayPlan
           </Link>
           <p className="text-xs text-gray-500 mt-1">Your care journey {patientName && `· ${patientName}`}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <nav className="tab-strip">
-            <button
-              type="button"
-              onClick={() => setActiveTab('booking')}
-              aria-current={activeTab === 'booking' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'booking' ? 'is-active' : ''}`}
-            >
-              Book Appointment
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('bookings')}
-              aria-current={activeTab === 'bookings' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'bookings' ? 'is-active' : ''}`}
-            >
-              My Bookings
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('history')}
-              aria-current={activeTab === 'history' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'history' ? 'is-active' : ''}`}
-            >
-              My Medical History
-            </button>
-            <button type="button" onClick={() => setActiveTab('profile')} aria-current={activeTab === 'profile' ? 'page' : undefined} className={`tab-button ${activeTab === 'profile' ? 'is-active' : ''}`}>
-              Profile
-            </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Collapsible hamburger menu — mobile only */}
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            aria-expanded={isMenuOpen}
+            aria-controls="patient-mobile-menu"
+            aria-label="Toggle navigation menu"
+            className="hamburger-button"
+          >
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+          </button>
+
+          {/* Inline tab strip — desktop/tablet only */}
+          <nav className="tab-strip overflow-x-auto max-w-full hidden md:flex">
+            {PATIENT_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabSelect(tab.id)}
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`tab-button ${activeTab === tab.id ? 'is-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </nav>
-          <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
+          <button type="button" onClick={handleLogout} className="hidden md:inline-block text-sm font-bold text-red-600 hover:underline">
             Logout
           </button>
         </div>
+
+        {/* Collapsible mobile menu */}
+        {isMenuOpen && (
+          <div id="patient-mobile-menu" className="mobile-menu">
+            <nav className="flex flex-col gap-1">
+              {PATIENT_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleTabSelect(tab.id)}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                  className={`mobile-menu-item ${activeTab === tab.id ? 'is-active' : ''}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mobile-menu-item text-red-600"
+              >
+                Logout
+              </button>
+            </nav>
+          </div>
+        )}
       </header>
 
       <main className="dashboard-main space-y-8">
@@ -325,36 +383,60 @@ function PatientDashboard() {
               </select>
             </div>
 
-            <div className="field-group">
-              <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
-                Clinic
-              </label>
-              <select
-                id="clinicSelect"
-                required
-                value={selectedClinicId}
-                onChange={handleClinicChange}
-                disabled={!selectedCity || isLoadingClinics}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
-              >
-                <option value="" disabled>
-                  {!selectedCity
-                    ? 'Select a city first'
-                    : isLoadingClinics
+            {/* The clinic picker appears only after a city is chosen. Closed
+                clinics stay visible but are marked and cannot be selected.
+                items-start on the grid keeps the two dropdowns top-aligned. */}
+            {selectedCity && (
+              <div className="field-group">
+                <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
+                  Clinic
+                </label>
+                <select
+                  id="clinicSelect"
+                  required
+                  value={selectedClinicId}
+                  onChange={handleClinicChange}
+                  disabled={isLoadingClinics}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px] w-full"
+                >
+                  <option value="" disabled>
+                    {isLoadingClinics
                       ? 'Loading clinics...'
                       : clinicsInSelectedCity.length === 0
                         ? 'No clinics in this city'
                         : 'Select a clinic'}
-                </option>
-                {clinicsInSelectedCity.map((clinic) => (
-                  <option key={clinic._id} value={clinic._id}>
-                    {clinic.name} — {clinic.address}
-                    {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
                   </option>
-                ))}
-              </select>
-            </div>
+                  {clinicsInSelectedCity.map((clinic) => (
+                    <option key={clinic._id} value={clinic._id} disabled={clinic.status !== 'active'}>
+                      {clinic.name} — {clinic.address}
+                      {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+                      {clinic.status !== 'active' ? ' — Closed' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
+
+          {/* Kept outside the dropdown grid so it never disturbs the
+              City/Clinic column alignment. */}
+          {selectedCity && selectedClinicId && (
+            <button
+              type="button"
+              onClick={() => {
+                const clinic = clinics.find((item) => item._id === selectedClinicId);
+                const doctorId = clinic?.doctorId?._id || clinic?.doctorId;
+                if (doctorId) {
+                  setProfileDoctorId(String(doctorId));
+                } else {
+                  setStatus('Doctor details are unavailable for this clinic.');
+                }
+              }}
+              className="mb-6 text-sm font-medium text-blue-600 hover:underline"
+            >
+              View doctor profile
+            </button>
+          )}
 
           {selectedClinicId && (
             <div className="flex flex-wrap gap-6 items-start">
@@ -421,6 +503,10 @@ function PatientDashboard() {
         )}
         {activeTab === 'profile' && <ProfilePanel />}
       </main>
+
+      {profileDoctorId && (
+        <DoctorProfileModal doctorId={profileDoctorId} onClose={() => setProfileDoctorId('')} />
+      )}
     </div>
   );
 }
