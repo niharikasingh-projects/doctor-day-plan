@@ -42,8 +42,17 @@ export const getProfile = async () => {
 };
 
 /**
- * Requests a password reset code for the given email. In non-production the
- * response includes the reset code because no email service is wired up.
+ * Fetches public, non-secret runtime config (e.g. whether notifications are on).
+ */
+export const fetchPublicConfig = async () => {
+  const { data } = await axiosInstance.get('/auth/config');
+  return data;
+};
+
+/**
+ * Requests a password reset code for the given email. When notifications are
+ * enabled the code is emailed (never returned); otherwise non-production
+ * responses include the code for local testing.
  * @param {string} email
  */
 export const requestPasswordReset = async (email) => {

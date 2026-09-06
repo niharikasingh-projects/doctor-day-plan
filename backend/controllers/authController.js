@@ -10,6 +10,7 @@ const {
   isValidLicenseNumber,
   isPastDate,
 } = require('../utils/validators');
+const { sendPasswordResetCode, notificationsEnabled } = require('../utils/notificationService');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const GENDERS = ['Male', 'Female', 'Other'];
@@ -169,10 +170,18 @@ const loginUser = async (req, res) => {
   }
 };
 
+// GET /api/auth/config (Public) — non-secret runtime flags the UI needs before
+// login, e.g. whether notifications (and therefore reset-code emails) are on.
+const getPublicConfig = (req, res) => {
+  return res.status(200).json({ notificationsEnabled });
+};
+
 // POST /api/auth/forgot-password (Public) — issues a short-lived password reset token.
 // Always answers with a generic message so account existence is not leaked.
-// In non-production environments the token is returned in the response (and logged)
-// because this project has no email delivery service wired up.
+// When notifications are enabled the code is EMAILED (in non-production, to the
+// configured fallback inbox) and never returned in the response; when the flag
+// is off there is no delivery channel, so non-production falls back to
+// returning the code in the response for local testing.
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -191,14 +200,23 @@ const forgotPassword = async (req, res) => {
       user.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
       await user.save();
 
-      console.log(`Password reset requested for ${user.email}. Reset token (valid 15 min): ${rawToken}`);
-
-      if (process.env.NODE_ENV !== 'production') {
-        return res.status(200).json({
-          message: 'If an account exists for this email, a reset code has been generated.',
-          resetToken: rawToken,
+      if (notificationsEnabled) {
+        await sendPasswordResetCode({
+          email: user.email,
+          token: rawToken,
           expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
         });
+        console.log(`Password reset code for ${user.email} dispatched via notification service.`);
+      } else {
+        console.log(`Password reset requested for ${user.email}. Reset token (valid 15 min): ${rawToken}`);
+
+        if (process.env.NODE_ENV !== 'production') {
+          return res.status(200).json({
+            message: 'If an account exists for this email, a reset code has been generated.',
+            resetToken: rawToken,
+            expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+          });
+        }
       }
     }
 
@@ -394,4 +412,5 @@ module.exports = {
   getProfile,
   updateProfile,
   getDoctorPublicProfile,
+  getPublicConfig,
 };

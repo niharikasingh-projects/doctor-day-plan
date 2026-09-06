@@ -161,7 +161,34 @@ PORT=5000
 NODE_ENV=development
 MONGO_URI=mongodb://localhost:27017/doctordayplan
 JWT_SECRET=super_secret_healthcare_signing_token_change_in_production
+
+# Optional — notification master switch. Set to false to disable ALL
+# email/SMS delivery (including demo-mode logging). Default: enabled.
+# NOTIFICATIONS_ENABLED=true
+
+# Optional — email notifications (Nodemailer SMTP, e.g. Gmail app password / Mailtrap / SendGrid)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-account@gmail.com
+# SMTP_PASS=your-app-password
+# SMTP_FROM=DoctorDayPlan <your-account@gmail.com>
+
+# Optional — SMS notifications (Twilio)
+# TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# TWILIO_AUTH_TOKEN=your-twilio-auth-token
+# TWILIO_FROM_NUMBER=+1XXXXXXXXXX
+
+# Optional — local/demo fallback recipients (ignored when NODE_ENV=production).
+# Notifications addressed to seeded test accounts (*@doctordayplan.test, *.test,
+# *.example, *.localhost) are redirected here so you can watch real messages
+# arrive at your own inbox/phone while demoing with test accounts.
+# NOTIFICATION_FALLBACK_EMAIL=you@gmail.com
+# NOTIFICATION_FALLBACK_PHONE=+919876543210
+# Set to true to redirect EVERY notification (not just test accounts) in non-production:
+# DEMO_REDIRECT_ALL_NOTIFICATIONS=false
 ```
+
+> **Notifications demo mode:** if no SMTP/Twilio variables are set (e.g. plain localhost), the app does not fail — every email/SMS is printed in full to the backend console and appended to `backend/logs/notifications.log` (an append-only outbox you can open during the demo to show exactly what would have been sent). With the fallback variables above set **and** SMTP/Twilio configured, demo-account notifications are delivered to your real inbox/phone instead. In production (`NODE_ENV=production`) fallback routing is disabled and notifications always go to the actual recipients.
 
 Create a separate `.env` file inside your **`frontend/`** folder. Because the frontend is a **Vite** project (not Create React App), environment variables must be prefixed with `VITE_` and are read via `import.meta.env`, not `process.env.REACT_APP_*`:
 ```env
@@ -252,7 +279,7 @@ npm run test
 ### Module 1 — Authentication & Access
 * Patient self-registration (`POST /api/auth/register`) and doctor self-registration (`POST /api/auth/register/doctor`); passwords are hashed via a `bcrypt` pre-save hook on the `User` model (never stored in plaintext).
 * **Doctor license is mandatory:** doctor registration and profile updates require `doctorProfile.licenseNumber` matching `/^[A-Za-z0-9\-/]{5,20}$/`, kept unique by a sparse index. Patients can verify a doctor's license, specialization, qualification, and experience from the booking flow via `GET /api/auth/doctors/:doctorId`.
-* **Forgot password:** `POST /api/auth/forgot-password` stores a sha256-hashed, 15-minute reset token on the user and answers generically (no account enumeration); `POST /api/auth/reset-password` consumes it once. Outside production the token is returned in the response because no email service is configured.
+* **Forgot password:** `POST /api/auth/forgot-password` stores a sha256-hashed, 15-minute reset token on the user and answers generically (no account enumeration); `POST /api/auth/reset-password` consumes it once. **When notifications are enabled (`NOTIFICATIONS_ENABLED` ≠ false) the code is emailed — in non-production always to `NOTIFICATION_FALLBACK_EMAIL` — and never returned in the response**, and the reset form asks for the code + new password twice (live checklist of unmet rules, confirm-password match indicator). When notifications are disabled and the environment is non-production, the code is returned in the response for local testing instead.
 * JWT login (`POST /api/auth/login`) issuing a 7-day token containing `{ userId, role }`.
 * `verifyToken` / `requireRole` Express middleware protecting all doctor-only and patient-only routes.
 * `Login.jsx` (with the forgot/reset flow) and `Register.jsx` (with a Patient/Doctor toggle) wired through `react-router-dom`; the JWT's `role` claim decides whether a user lands on `/doctor/dashboard` or `/patient/dashboard`, enforced client-side by `ProtectedRoute.jsx`.
@@ -277,6 +304,16 @@ npm run test
 * `pending`, `confirmed`, and `completed` appointments reserve a clinic/date/time slot. `cancelled` and `rejected` appointments release that slot, and the Patient Dashboard refreshes availability after booking or cancellation.
 * Doctors can trigger an emergency cancellation (`POST /api/appointments/emergency`). After confirmation, only today's pending and confirmed appointments are cancelled with the doctor's message, affected patients receive a Socket.io `doctorEmergency` notice, and cancelled patients are removed from live queues. Future, completed, rejected, and already-cancelled appointments are preserved.
 * Normal accept, reject, cancel, reschedule, call, and consultation-finished actions emit `appointmentUpdated` notices to the affected user's Socket.io room.
+* **Email + SMS notifications (`backend/utils/notificationService.js`):** delivery is provider-agnostic — SMTP via Nodemailer and SMS via Twilio when the matching `.env` credentials exist, otherwise **demo mode** prints the full message to the backend console and appends it to `backend/logs/notifications.log` (gitignored), so the feature works end-to-end from localhost. Notification failures never break booking flows.
+
+  **Triggers wired in `appointmentController.js`:**
+
+  | Event | Patient gets | Doctor gets |
+  |---|---|---|
+  | Appointment booked | ✅ Email + SMS ("awaiting confirmation") | — |
+  | Doctor accepts/rejects | ✅ Email + SMS with status | — |
+  | Patient cancels (with reason) | ✅ Cancellation confirmation | ✅ Email + SMS with the patient's name, slot, and reason |
+  | **SOS button** | ✅ Email + SMS to **every patient with a pending/confirmed appointment today**, including the doctor's message | — |
 
 ### Module 4 — Live Queue & Real-Time Updates
 * Socket.io uses the same HTTP server as Express. Queue ordering is maintained per clinic room and synchronized with appointment records in MongoDB.
@@ -302,7 +339,7 @@ npm run test
 ### Verification Status
 * The frontend production build passes with Vite, and the full ESLint run reports **0 errors / 0 warnings**.
 * Backend integration tests cover patient registration/password hashing/JWT login, inactive-account rejection, duplicate appointment-slot prevention, profile/clinic schedule updates, reschedule conflict handling, **doctor license enforcement + uniqueness, weak-password/phone rejection, the full forgot/reset password cycle (including token reuse), diagnosis-based patient search, the pagination envelope, closed-clinic booking rejection, public doctor profile exposure, cross-doctor prescription download authorization (allowed for treating doctors, 403 for strangers), and PDF streaming verified down to the `%PDF` magic bytes**. Run them from `backend/` with `npm.cmd test` (or `npm run test` from the root).
-* The backend test suite currently contains 2 suites and **18 passing tests**, including dedicated live-queue unit tests for deduplication, MongoDB hydration, current-patient recovery, and queue cleanup.
+* The backend test suite currently contains 2 suites and **19 passing tests** — including notification trigger coverage (booking fires patient email+SMS; patient cancellation notifies the doctor), plus dedicated live-queue unit tests for deduplication, MongoDB hydration, current-patient recovery, and queue cleanup.
 * Mongoose 9 update operations use `returnDocument: 'after'` instead of the deprecated `new: true` option, so the backend starts without those deprecation warnings.
 
 ### High-Priority Completion Notes

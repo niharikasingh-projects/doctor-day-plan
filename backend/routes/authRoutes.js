@@ -8,6 +8,7 @@ const {
   getProfile,
   updateProfile,
   getDoctorPublicProfile,
+  getPublicConfig,
 } = require('../controllers/authController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post('/register', registerPatient);
 router.post('/register/doctor', registerDoctor);
 router.post('/login', loginUser);
+router.get('/config', getPublicConfig);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.get('/profile', verifyToken, getProfile);

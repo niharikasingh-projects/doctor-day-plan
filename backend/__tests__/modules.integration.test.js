@@ -1,6 +1,13 @@
 const request = require('supertest');
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+
+const NOTIFICATIONS_LOG = path.join(__dirname, '..', 'logs', 'notifications.log');
+
+const readNotificationsLog = () =>
+  fs.existsSync(NOTIFICATIONS_LOG) ? fs.readFileSync(NOTIFICATIONS_LOG, 'utf8') : '';
 
 let mongoServer;
 let app;
@@ -287,15 +294,25 @@ test('forgot-password issues a token and reset-password sets a new login passwor
     patientProfile: { name: 'Reset Patient', dob: '1990-01-01', gender: 'Other' },
   });
 
+  // Notifications are enabled by default in the test env, so the code must NOT
+  // be returned in the response — it is dispatched via the notification service
+  // (demo mode outbox in tests).
+  const logBefore = readNotificationsLog().length;
   const forgot = await request(app)
     .post('/api/auth/forgot-password')
     .send({ email: 'reset@test.example' });
   expect(forgot.statusCode).toBe(200);
-  expect(forgot.body.resetToken).toEqual(expect.any(String));
+  expect(forgot.body.resetToken).toBeUndefined();
+
+  const newEntries = readNotificationsLog().slice(logBefore);
+  expect(newEntries).toContain('Your password reset code');
+  const tokenMatch = newEntries.match(/valid for 15 minutes\):\s*\n\s*\n([a-f0-9]{64})/i);
+  expect(tokenMatch).not.toBeNull();
+  const issuedToken = tokenMatch[1];
 
   const reset = await request(app).post('/api/auth/reset-password').send({
     email: 'reset@test.example',
-    token: forgot.body.resetToken,
+    token: issuedToken,
     newPassword: 'NewPatient@456',
   });
   expect(reset.statusCode).toBe(200);
@@ -312,10 +329,17 @@ test('forgot-password issues a token and reset-password sets a new login passwor
 
   const reusedToken = await request(app).post('/api/auth/reset-password').send({
     email: 'reset@test.example',
-    token: forgot.body.resetToken,
+    token: issuedToken,
     newPassword: 'Another@789',
   });
   expect(reusedToken.statusCode).toBe(400);
+});
+
+test('public config exposes the notifications flag', async () => {
+  const response = await request(app).get('/api/auth/config');
+  expect(response.statusCode).toBe(200);
+  expect(response.body).toHaveProperty('notificationsEnabled');
+  expect(typeof response.body.notificationsEnabled).toBe('boolean');
 });
 
 test('doctor patient search matches consultation diagnosis text', async () => {
@@ -467,6 +491,43 @@ test('doctor public profile exposes license number to patients', async () => {
   expect(response.body.doctor.licenseNumber).toBe('LIC-public');
   expect(response.body.doctor.name).toBe('Doctor public');
   expect(response.body.clinics).toHaveLength(1);
+});
+
+test('booking and patient cancellation fire email + SMS notifications (demo mode)', async () => {
+  const { doctor, patient, clinic } = await seedDoctorPatientClinic('notify');
+  const futureDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const patientLogin = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'patient-notify@test.example', password: 'Patient@123' });
+  const patientToken = patientLogin.body.token;
+
+  const logBefore = readNotificationsLog();
+
+  const booking = await request(app)
+    .post('/api/appointments')
+    .set('Authorization', `Bearer ${patientToken}`)
+    .send({ clinicId: clinic._id, doctorId: doctor._id, appointmentDate: futureDate, slotTime: '09:00' });
+  expect(booking.statusCode).toBe(201);
+
+  const afterBooking = readNotificationsLog();
+  const bookingEntries = afterBooking.slice(logBefore.length);
+  expect(bookingEntries).toContain('DEMO EMAIL');
+  expect(bookingEntries).toContain('DEMO SMS');
+  expect(bookingEntries).toContain('patient-notify@test.example');
+  expect(bookingEntries).toContain('Appointment booked');
+
+  const cancellation = await request(app)
+    .patch(`/api/appointments/${booking.body._id}/status`)
+    .set('Authorization', `Bearer ${patientToken}`)
+    .send({ status: 'cancelled', cancelReason: 'Feeling better already.' });
+  expect(cancellation.statusCode).toBe(200);
+
+  const afterCancel = readNotificationsLog();
+  const cancelEntries = afterCancel.slice(afterBooking.length);
+  expect(cancelEntries).toContain('Appointment cancelled');
+  expect(cancelEntries).toContain('doctor-notify@test.example');
+  expect(cancelEntries).toContain('Feeling better already.');
 });
 
 test('a doctor who treated a patient can download prescriptions written by another doctor', async () => {

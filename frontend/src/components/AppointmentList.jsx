@@ -65,6 +65,7 @@ function AppointmentCard({
   onReschedule,
   onStartConsultation,
   onViewDoctorProfile,
+  onCancel,
 }) {
   return (
     <div className="bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3">
@@ -158,15 +159,84 @@ function AppointmentCard({
         {role === 'patient' && ['pending', 'confirmed'].includes(appointment.status) && (
           <button
             type="button"
-            onClick={() => {
-              const reason = window.prompt('Reason for cancellation:');
-              if (reason) onStatusUpdate(appointment._id, 'cancelled', reason);
-            }}
+            onClick={() => onCancel(appointment)}
             className="rounded-lg border border-red-300 text-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-50"
           >
             Cancel
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Cancellation reason dialog — replaces the native window.prompt with a
+// responsive, accessible modal containing a labeled textarea.
+function CancelAppointmentDialog({ appointment, onClose, onConfirm, isSubmitting }) {
+  const [reason, setReason] = useState('');
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    onConfirm(appointment._id, 'cancelled', reason.trim());
+  };
+
+  if (!appointment) return null;
+
+  const clinicLabel = appointment.clinicId?.name || 'this clinic';
+  const dateLabel = new Date(appointment.appointmentDate).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div
+        className="surface w-full max-w-md p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancel-appointment-title"
+      >
+        <p className="eyebrow text-red-700 mb-2">Cancellation</p>
+        <h3 id="cancel-appointment-title" className="text-2xl font-bold text-gray-900 mb-1">
+          Cancel this appointment?
+        </h3>
+        <p className="text-sm text-gray-500 mb-5">
+          {clinicLabel} · {dateLabel} at {appointment.slotTime}. The slot will be released for other
+          patients and the clinic will be notified.
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <label htmlFor="cancelReason" className="block text-sm font-medium text-gray-700">
+            Reason for cancellation <span className="text-red-500">*</span>
+            <textarea
+              id="cancelReason"
+              required
+              rows="4"
+              autoFocus
+              placeholder="e.g. I have a scheduling conflict and need a different day"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </label>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 font-medium text-gray-600 hover:bg-gray-100"
+            >
+              Keep appointment
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !reason.trim()}
+              className="rounded-lg bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Cancelling...' : 'Confirm cancellation'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -352,6 +422,8 @@ function AppointmentList({ role, onRefresh }) {
   const [reschedulingAppointment, setReschedulingAppointment] = useState(null);
   const [rescheduleForm, setRescheduleForm] = useState({ appointmentDate: '', slotTime: '' });
   const [isRescheduling, setIsRescheduling] = useState(false);
+  const [cancellingAppointment, setCancellingAppointment] = useState(null);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [profileDoctorId, setProfileDoctorId] = useState('');
 
   // All setState calls happen after the first await — no synchronous state
@@ -435,6 +507,19 @@ function AppointmentList({ role, onRefresh }) {
     });
   };
 
+  const handleCancelConfirm = async (id, status, reason) => {
+    setIsCancelling(true);
+    try {
+      await updateAppointmentStatus(id, status, reason);
+      setCancellingAppointment(null);
+      refresh();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Unable to cancel the appointment.');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const submitReschedule = async (event) => {
     event.preventDefault();
     if (!reschedulingAppointment) return;
@@ -489,6 +574,7 @@ function AppointmentList({ role, onRefresh }) {
             onReschedule: handleReschedule,
             onStartConsultation: setConsultationAppointment,
             onViewDoctorProfile: setProfileDoctorId,
+            onCancel: setCancellingAppointment,
           }}
         />
       ) : (
@@ -503,6 +589,7 @@ function AppointmentList({ role, onRefresh }) {
             onReschedule: handleReschedule,
             onStartConsultation: setConsultationAppointment,
             onViewDoctorProfile: setProfileDoctorId,
+            onCancel: setCancellingAppointment,
           }}
         />
       )}
@@ -514,6 +601,15 @@ function AppointmentList({ role, onRefresh }) {
           appointment={consultationAppointment}
           onClose={() => setConsultationAppointment(null)}
           onCompleted={refresh}
+        />
+      )}
+
+      {cancellingAppointment && (
+        <CancelAppointmentDialog
+          appointment={cancellingAppointment}
+          onClose={() => setCancellingAppointment(null)}
+          onConfirm={handleCancelConfirm}
+          isSubmitting={isCancelling}
         />
       )}
 

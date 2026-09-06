@@ -4,6 +4,12 @@ const User = require('../models/User');
 const { getIO } = require('../sockets/ioInstance');
 const { addPatientToQueue, removeAppointmentsFromQueues } = require('../sockets/queueHandler');
 const {
+  notifyPatientBooked,
+  notifyPatientStatusChanged,
+  notifyDoctorPatientCancelled,
+  notifyPatientsEmergency,
+} = require('../utils/notificationService');
+const {
   isValidObjectId,
   isValidTime,
   isPresentOrFutureDate,
@@ -65,6 +71,13 @@ const createAppointment = async (req, res) => {
       });
     }
 
+    // Email + SMS to the patient (demo-mode safe — never throws).
+    const [patient, doctor] = await Promise.all([
+      User.findById(appointment.patientId).select('email phone patientProfile'),
+      User.findById(appointment.doctorId).select('email phone doctorProfile'),
+    ]);
+    await notifyPatientBooked({ patient, appointment, clinic, doctor });
+
     return res.status(201).json(appointment);
   } catch (error) {
     console.error('createAppointment error:', error);
@@ -111,6 +124,13 @@ const triggerDoctorEmergency = async (req, res) => {
         });
       });
     }
+
+    // Email + SMS every patient lined up today (demo-mode safe — never throws).
+    const affectedPatientIds = [...new Set(appointments.map((appointment) => String(appointment.patientId)))];
+    const affectedPatients = await User.find({ _id: { $in: affectedPatientIds } }).select(
+      'email phone patientProfile'
+    );
+    await notifyPatientsEmergency({ patients: affectedPatients, reason });
 
     return res.status(200).json({
       message: 'Patients have been notified and active appointments were cancelled.',
@@ -173,6 +193,19 @@ const updateStatus = async (req, res) => {
           ? `Your appointment was ${appointment.status}.`
           : 'The patient cancelled an appointment.',
       });
+    }
+
+    // Email + SMS notifications (demo-mode safe — never throws).
+    const [clinic, patient, doctor] = await Promise.all([
+      Clinic.findById(appointment.clinicId).select('name address'),
+      User.findById(appointment.patientId).select('email phone patientProfile'),
+      User.findById(appointment.doctorId).select('email phone doctorProfile'),
+    ]);
+    if (req.user.role === 'doctor') {
+      await notifyPatientStatusChanged({ patient, appointment, clinic, doctor, status });
+    } else {
+      await notifyPatientStatusChanged({ patient, appointment, clinic, doctor, status, reason: cancelReason });
+      await notifyDoctorPatientCancelled({ doctor, appointment, clinic, patient, reason: cancelReason });
     }
 
     return res.status(200).json(appointment);
