@@ -66,15 +66,15 @@ function DoctorDashboard() {
 
   return (
     <div className="app-shell">
-      <header className="app-header flex items-center justify-between gap-5">
+      <header className="app-header flex flex-wrap items-center justify-between gap-3 sm:gap-5">
         <div>
           <Link to="/" className="brand-mark text-lg font-bold no-underline">
             DoctorDayPlan
           </Link>
           <p className="text-xs text-gray-500 mt-1">Practice command center {doctorName && `· Dr. ${doctorName}`}</p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap justify-end">
-          <nav className="tab-strip">
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
+          <nav className="tab-strip overflow-x-auto max-w-full">
             <button
               type="button"
               onClick={() => setActiveTab('clinics')}
@@ -133,11 +133,11 @@ function DoctorDashboard() {
         {activeTab === 'records' && <PatientRecords />}
         {activeTab === 'profile' && <ProfilePanel />}
         {activeTab === 'queue' && (
-          <div className="p-6 max-w-2xl mx-auto space-y-4">
+          <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-4">
             <select
               value={selectedClinicId}
               onChange={(event) => setSelectedClinicId(event.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px] w-full sm:w-auto"
             >
               <option value="" disabled>
                 Select a clinic

@@ -6,6 +6,7 @@ import AppointmentList from './AppointmentList';
 import LiveQueue from './LiveQueue';
 import MedicalHistory from './MedicalHistory';
 import ProfilePanel from './ProfilePanel';
+import DoctorProfileModal from './DoctorProfileModal';
 import { fetchAvailableSlots, fetchAllClinics, fetchMonthlyAvailability } from '../api/clinicService';
 import { bookAppointment, fetchMyAppointments } from '../api/appointmentService';
 import { logout } from '../api/authService';
@@ -75,12 +76,13 @@ function PatientDashboard() {
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
+  const [profileDoctorId, setProfileDoctorId] = useState('');
   const { emergencyNotice, setEmergencyNotice, appointmentNotice, setAppointmentNotice } = useQueueContext();
 
   useEffect(() => {
     const loadActiveAppointment = async () => {
       try {
-        const data = await fetchMyAppointments();
+        const { data } = await fetchMyAppointments({ all: true });
         const checkedInToday = data.find(
           (appt) =>
             appt.checkedInAt &&
@@ -114,7 +116,9 @@ function PatientDashboard() {
 
   useEffect(() => {
     if (!selectedClinicId) {
-      setAvailability({});
+      // Deferred to a microtask: synchronous setState inside an effect body
+      // triggers a cascading render (react-hooks/set-state-in-effect).
+      Promise.resolve().then(() => setAvailability({}));
       return;
     }
 
@@ -216,6 +220,10 @@ function PatientDashboard() {
     if (!selectedSlot) return;
     const clinic = clinics.find((item) => item._id === selectedClinicId);
     if (!clinic) return;
+    if (clinic.status !== 'active') {
+      setStatus('This clinic is currently closed and is not accepting bookings.');
+      return;
+    }
 
     try {
       await bookAppointment({
@@ -234,15 +242,15 @@ function PatientDashboard() {
 
   return (
     <div className="app-shell">
-      <header className="app-header flex items-center justify-between gap-5">
+      <header className="app-header flex flex-wrap items-center justify-between gap-3 sm:gap-5">
         <div>
           <Link to="/" className="brand-mark text-lg font-bold no-underline">
             DoctorDayPlan
           </Link>
           <p className="text-xs text-gray-500 mt-1">Your care journey {patientName && `· ${patientName}`}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <nav className="tab-strip">
+        <div className="flex items-center gap-3 flex-wrap">
+          <nav className="tab-strip overflow-x-auto max-w-full">
             <button
               type="button"
               onClick={() => setActiveTab('booking')}
@@ -325,35 +333,50 @@ function PatientDashboard() {
               </select>
             </div>
 
-            <div className="field-group">
-              <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
-                Clinic
-              </label>
-              <select
-                id="clinicSelect"
-                required
-                value={selectedClinicId}
-                onChange={handleClinicChange}
-                disabled={!selectedCity || isLoadingClinics}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
-              >
-                <option value="" disabled>
-                  {!selectedCity
-                    ? 'Select a city first'
-                    : isLoadingClinics
+            {/* The clinic picker appears only after a city is chosen. Closed
+                clinics stay visible but are marked and cannot be selected. */}
+            {selectedCity && (
+              <div className="field-group">
+                <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
+                  Clinic
+                </label>
+                <select
+                  id="clinicSelect"
+                  required
+                  value={selectedClinicId}
+                  onChange={handleClinicChange}
+                  disabled={isLoadingClinics}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px] w-full"
+                >
+                  <option value="" disabled>
+                    {isLoadingClinics
                       ? 'Loading clinics...'
                       : clinicsInSelectedCity.length === 0
                         ? 'No clinics in this city'
                         : 'Select a clinic'}
-                </option>
-                {clinicsInSelectedCity.map((clinic) => (
-                  <option key={clinic._id} value={clinic._id}>
-                    {clinic.name} — {clinic.address}
-                    {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
                   </option>
-                ))}
-              </select>
-            </div>
+                  {clinicsInSelectedCity.map((clinic) => (
+                    <option key={clinic._id} value={clinic._id} disabled={clinic.status !== 'active'}>
+                      {clinic.name} — {clinic.address}
+                      {clinic.doctorId?.doctorProfile?.name ? ` (Dr. ${clinic.doctorId.doctorProfile.name})` : ''}
+                      {clinic.status !== 'active' ? ' — Closed' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedClinicId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clinic = clinics.find((item) => item._id === selectedClinicId);
+                      if (clinic?.doctorId?._id) setProfileDoctorId(clinic.doctorId._id);
+                    }}
+                    className="mt-2 text-sm font-medium text-blue-600 hover:underline"
+                  >
+                    View doctor profile
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {selectedClinicId && (
@@ -421,6 +444,10 @@ function PatientDashboard() {
         )}
         {activeTab === 'profile' && <ProfilePanel />}
       </main>
+
+      {profileDoctorId && (
+        <DoctorProfileModal doctorId={profileDoctorId} onClose={() => setProfileDoctorId('')} />
+      )}
     </div>
   );
 }

@@ -9,6 +9,12 @@ const doctorProfileSchema = new mongoose.Schema(
       required: [true, 'Doctor name is required.'],
       trim: true,
     },
+    licenseNumber: {
+      type: String,
+      required: [true, 'Medical license number is required for doctors.'],
+      trim: true,
+      match: [/^[A-Za-z0-9\-/]{5,20}$/, 'Please provide a valid medical license number (5-20 letters, digits, "-" or "/").'],
+    },
     specialization: {
       type: String,
       trim: true,
@@ -131,9 +137,24 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Hashed (sha256) password-reset token + expiry for the forgot-password flow.
+    // Never returned by queries (select: false); the raw token only ever travels
+    // over the out-of-band reset channel.
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
+    },
   },
   { timestamps: true }
 );
+
+// License numbers must be unique across doctors; sparse so patient documents
+// (which have no doctorProfile at all) are skipped by the index.
+userSchema.index({ 'doctorProfile.licenseNumber': 1 }, { unique: true, sparse: true });
 
 // Virtual "password" setter accepts the raw plaintext password from
 // controllers; the pre-save hook below hashes it into passwordHash.

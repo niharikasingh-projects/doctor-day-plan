@@ -15,6 +15,7 @@ const DOCTORS = [
     phone: '+919876543210',
     doctorProfile: {
       name: 'Priya Sharma',
+      licenseNumber: 'MCI-10001',
       specialization: 'Cardiology',
       qualification: 'MBBS, MD (Cardiology)',
       experienceYears: 12,
@@ -29,6 +30,7 @@ const DOCTORS = [
     phone: '+919876543211',
     doctorProfile: {
       name: 'Arjun Mehta',
+      licenseNumber: 'MCI-10002',
       specialization: 'Dermatology',
       qualification: 'MBBS, MD (Dermatology)',
       experienceYears: 8,
@@ -70,6 +72,52 @@ const CLINIC_NAMES = [
 ];
 const MEDICINE_NAMES = ['Atorvastatin 10', 'Cetirizine 10', 'Pantoprazole 40'];
 
+// Bulk mock-data configuration: at least 1000 appointment records per doctor and
+// at least 100 records for each named patient test account, so pagination,
+// search, and Excel export can be exercised against realistic data volumes.
+const MOCK_PATIENT_COUNT = 40;
+const TARGET_RECORDS_PER_DOCTOR = 1000;
+const RECORDS_PER_TEST_PATIENT = 100;
+const BULK_CHUNK_SIZE = 500;
+const MOCK_PATIENT_PASSWORD = 'Patient@123';
+const MOCK_PATIENT_FIRST_NAMES = [
+  'Aarav', 'Ananya', 'Arjun', 'Diya', 'Ishaan', 'Kavya', 'Krishna', 'Meera',
+  'Nikhil', 'Priya', 'Rohan', 'Sanya', 'Aditi', 'Vikram', 'Neha', 'Rahul',
+  'Pooja', 'Sanjay', 'Divya', 'Manish',
+];
+const MOCK_PATIENT_LAST_NAMES = [
+  'Sharma', 'Patel', 'Gupta', 'Iyer', 'Khan', 'Reddy', 'Nair', 'Singh',
+  'Joshi', 'Das', 'Kulkarni', 'Chopra', 'Bose', 'Menon', 'Rao',
+];
+const MOCK_DIAGNOSES = [
+  'Hypertension', 'Type 2 Diabetes Mellitus', 'Seasonal Allergic Rhinitis',
+  'Acute Bronchitis', 'Migraine', 'GERD', 'Atopic Dermatitis', 'Lower Back Pain',
+  'Vitamin D Deficiency', 'Iron Deficiency Anemia', 'Upper Respiratory Infection',
+  'Asthma', 'Hypothyroidism', 'Eczema', 'Tension Headache',
+];
+const MOCK_DOSAGES = ['1-0-1', '1-0-0', '0-0-1', '1-1-1', '0-1-0'];
+const MOCK_INSTRUCTIONS = [
+  'After meals', 'Before breakfast', 'At bedtime', 'With warm water',
+  'Avoid dairy around dose', 'Take after dinner',
+];
+
+const randomItem = (list) => list[Math.floor(Math.random() * list.length)];
+const randomInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+
+// Builds the list of HH:mm slot strings a rule range produces for a given slot duration.
+const slotsForRule = (rule, slotDurationMins) => {
+  const [startHour, startMinute] = rule.startTime.split(':').map(Number);
+  const [endHour, endMinute] = rule.endTime.split(':').map(Number);
+  const slots = [];
+  let cursor = startHour * 60 + startMinute;
+  const end = endHour * 60 + endMinute;
+  while (cursor + slotDurationMins <= end) {
+    slots.push(`${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`);
+    cursor += slotDurationMins;
+  }
+  return slots;
+};
+
 const utcDateAtOffset = (daysFromToday) => {
   const date = new Date();
   const today = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -99,6 +147,14 @@ const seed = async () => {
     await Appointment.deleteMany({
       $or: [{ doctorId: { $in: oldUserIds } }, { patientId: { $in: oldUserIds } }, { clinicId: { $in: oldClinicIds } }],
     });
+    // Remove previously generated bulk mock patients and every record that touched them.
+    const oldMockPatients = await User.find({ email: /^mock\.patient\.\d+@doctordayplan\.test$/ }).select('_id');
+    const oldMockPatientIds = oldMockPatients.map((user) => user._id);
+    if (oldMockPatientIds.length > 0) {
+      await Consultation.deleteMany({ patientId: { $in: oldMockPatientIds } });
+      await Appointment.deleteMany({ patientId: { $in: oldMockPatientIds } });
+      await User.deleteMany({ _id: { $in: oldMockPatientIds } });
+    }
     await User.deleteMany({ email: { $in: seedEmails } });
     await Clinic.deleteMany({ name: { $in: CLINIC_NAMES } });
     await Medicine.deleteMany({ name: { $in: MEDICINE_NAMES } });
@@ -294,6 +350,147 @@ const seed = async () => {
     console.log(`Created cancelled appointment: ${cancelledAppointment._id} (slot release test)`);
     console.log(`Created rejected appointment: ${rejectedAppointment._id} (doctor status test)`);
     console.log(`Created medicine catalog entries: ${atorvastatin.name}, ${cetirizine.name}, ${pantoprazole.name}`);
+
+    // ------------------------------------------------------------------
+    // Bulk mock data: >= 1000 records per doctor, >= 100 per test patient.
+    // ------------------------------------------------------------------
+    console.log('\nGenerating bulk mock records (this can take a minute)...');
+
+    const mockPatientDocs = [];
+    for (let index = 1; index <= MOCK_PATIENT_COUNT; index += 1) {
+      mockPatientDocs.push({
+        email: `mock.patient.${index}@doctordayplan.test`,
+        password: MOCK_PATIENT_PASSWORD,
+        phone: `+9197${String(10000000 + index).slice(-8)}`,
+        role: 'patient',
+        patientProfile: {
+          name: `${randomItem(MOCK_PATIENT_FIRST_NAMES)} ${randomItem(MOCK_PATIENT_LAST_NAMES)}`,
+          dob: `${randomInt(1955, 2010)}-${String(randomInt(1, 12)).padStart(2, '0')}-${String(randomInt(1, 28)).padStart(2, '0')}`,
+          gender: randomItem(['Male', 'Female', 'Other']),
+        },
+      });
+    }
+    // User.create() (not insertMany) so the password-hashing pre-save hook runs per document.
+    const mockPatients = await User.create(mockPatientDocs);
+    console.log(`Created ${mockPatients.length} mock patients (password: ${MOCK_PATIENT_PASSWORD}).`);
+
+    const allPatients = [...createdPatients, ...mockPatients];
+    const medicinePool = medicineDocuments.map((medicine) => medicine.name);
+    const usedSlotKeys = new Set();
+    const doctorRecordCounts = new Map(createdDoctors.map((doctor) => [String(doctor._id), 0]));
+
+    // Pre-index each clinic's slot grid by weekday name for realistic mock bookings.
+    const clinicSlotGrids = createdClinics.map((clinic) => {
+      const doctor = createdDoctors.find((entry) => String(entry._id) === String(clinic.doctorId));
+      const slotDuration = doctor?.doctorProfile?.defaultSlotDurationMins || 15;
+      const byWeekday = {};
+      clinic.scheduleRules.forEach((rule) => {
+        byWeekday[rule.dayOfWeek] = slotsForRule(rule, slotDuration);
+      });
+      return { clinic, doctor, byWeekday };
+    });
+
+    const appointmentDocs = [];
+    const consultationDocs = [];
+
+    const pushMockRecord = ({ doctorGrid, patient, date }) => {
+      const weekday = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      const slots = doctorGrid.byWeekday[weekday];
+      if (!slots || slots.length === 0) return false;
+
+      const slotTime = randomItem(slots);
+      const dateKey = date.toISOString().slice(0, 10);
+      const slotKey = `${doctorGrid.clinic._id}|${dateKey}|${slotTime}`;
+      if (usedSlotKeys.has(slotKey)) return false;
+      usedSlotKeys.add(slotKey);
+
+      const isPast = date.getTime() < Date.now();
+      const status = isPast
+        ? randomItem(['completed', 'completed', 'completed', 'completed', 'cancelled', 'rejected'])
+        : randomItem(['pending', 'confirmed']);
+
+      const appointmentId = new mongoose.Types.ObjectId();
+      appointmentDocs.push({
+        _id: appointmentId,
+        clinicId: doctorGrid.clinic._id,
+        doctorId: doctorGrid.doctor._id,
+        patientId: patient._id,
+        appointmentDate: date,
+        slotTime,
+        status,
+        checkedInAt: status === 'completed' ? date : null,
+        cancelReason: status === 'cancelled' ? 'Mock cancellation for seed data.' : undefined,
+      });
+
+      if (status === 'completed') {
+        consultationDocs.push({
+          appointmentId,
+          patientId: patient._id,
+          doctorId: doctorGrid.doctor._id,
+          clinicId: doctorGrid.clinic._id,
+          diagnosis: randomItem(MOCK_DIAGNOSES),
+          clinicalNotes: 'Auto-generated mock consultation for seed data.',
+          medicines: Array.from({ length: randomInt(1, 3) }, () => ({
+            name: randomItem(medicinePool),
+            dosage: randomItem(MOCK_DOSAGES),
+            durationDays: randomInt(3, 14),
+            instructions: randomItem(MOCK_INSTRUCTIONS),
+          })),
+        });
+      }
+
+      doctorRecordCounts.set(
+        String(doctorGrid.doctor._id),
+        (doctorRecordCounts.get(String(doctorGrid.doctor._id)) || 0) + 1
+      );
+      return true;
+    };
+
+    const randomMockDate = (minOffset, maxOffset) => {
+      const date = new Date();
+      date.setUTCHours(0, 0, 0, 0);
+      date.setUTCDate(date.getUTCDate() + randomInt(minOffset, maxOffset));
+      return date;
+    };
+
+    // Guarantee every named test patient reaches at least 100 records.
+    for (const patient of createdPatients) {
+      let created = 0;
+      let guard = 0;
+      while (created < RECORDS_PER_TEST_PATIENT && guard < RECORDS_PER_TEST_PATIENT * 40) {
+        guard += 1;
+        const grid = randomItem(clinicSlotGrids);
+        if (pushMockRecord({ doctorGrid: grid, patient, date: randomMockDate(-300, -1) })) {
+          created += 1;
+        }
+      }
+      console.log(`Seeded ${created} records for test patient ${patient.email}.`);
+    }
+
+    // Top up each doctor to at least 1000 records with random mock patients.
+    for (const doctor of createdDoctors) {
+      const doctorGrids = clinicSlotGrids.filter((grid) => String(grid.doctor._id) === String(doctor._id));
+      let guard = 0;
+      while ((doctorRecordCounts.get(String(doctor._id)) || 0) < TARGET_RECORDS_PER_DOCTOR && guard < TARGET_RECORDS_PER_DOCTOR * 60) {
+        guard += 1;
+        const grid = randomItem(doctorGrids);
+        // ~90% historical (completed consultations), ~10% upcoming.
+        const date = Math.random() < 0.9 ? randomMockDate(-300, -1) : randomMockDate(1, 30);
+        pushMockRecord({ doctorGrid: grid, patient: randomItem(allPatients), date });
+      }
+      console.log(`Seeded ${doctorRecordCounts.get(String(doctor._id))} appointment records for ${doctor.email}.`);
+    }
+
+    for (let index = 0; index < appointmentDocs.length; index += BULK_CHUNK_SIZE) {
+      // insertMany: no document middleware exists on Appointment — safe and fast.
+      // eslint-disable-next-line no-await-in-loop
+      await Appointment.insertMany(appointmentDocs.slice(index, index + BULK_CHUNK_SIZE), { ordered: false });
+    }
+    for (let index = 0; index < consultationDocs.length; index += BULK_CHUNK_SIZE) {
+      // eslint-disable-next-line no-await-in-loop
+      await Consultation.insertMany(consultationDocs.slice(index, index + BULK_CHUNK_SIZE), { ordered: false });
+    }
+    console.log(`Bulk insert complete: ${appointmentDocs.length} appointments, ${consultationDocs.length} consultations.`);
 
     console.log('\n=== Test Accounts ===');
     console.log('Doctors:');

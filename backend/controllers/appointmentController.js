@@ -1,7 +1,15 @@
 const Appointment = require('../models/Appointment');
+const Clinic = require('../models/Clinic');
 const User = require('../models/User');
 const { getIO } = require('../sockets/ioInstance');
 const { addPatientToQueue, removeAppointmentsFromQueues } = require('../sockets/queueHandler');
+const {
+  isValidObjectId,
+  isValidTime,
+  isPresentOrFutureDate,
+  getPagination,
+  buildPaginationMeta,
+} = require('../utils/validators');
 
 // POST /api/appointments (Patient only) — books a new appointment slot.
 const createAppointment = async (req, res) => {
@@ -10,6 +18,26 @@ const createAppointment = async (req, res) => {
 
     if (!clinicId || !doctorId || !appointmentDate || !slotTime) {
       return res.status(400).json({ error: 'clinicId, doctorId, appointmentDate, and slotTime are required.' });
+    }
+    if (!isValidObjectId(clinicId) || !isValidObjectId(doctorId)) {
+      return res.status(400).json({ error: 'clinicId and doctorId must be valid ids.' });
+    }
+    if (!isValidTime(slotTime)) {
+      return res.status(400).json({ error: 'slotTime must be in HH:mm 24-hour format.' });
+    }
+    if (!isPresentOrFutureDate(appointmentDate)) {
+      return res.status(400).json({ error: 'appointmentDate must be a valid date today or in the future.' });
+    }
+
+    const clinic = await Clinic.findById(clinicId);
+    if (!clinic) {
+      return res.status(404).json({ error: 'Clinic not found.' });
+    }
+    if (clinic.status !== 'active') {
+      return res.status(400).json({ error: 'This clinic is currently closed and is not accepting bookings.' });
+    }
+    if (String(clinic.doctorId) !== String(doctorId)) {
+      return res.status(400).json({ error: 'doctorId does not match the clinic that was selected.' });
     }
 
     const existingAppointment = await Appointment.findOne({ clinicId, appointmentDate, slotTime });
@@ -162,6 +190,15 @@ const rescheduleAppointment = async (req, res) => {
     if (!appointmentDate || !slotTime) {
       return res.status(400).json({ error: 'appointmentDate and slotTime are required.' });
     }
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Appointment id is invalid.' });
+    }
+    if (!isValidTime(slotTime)) {
+      return res.status(400).json({ error: 'slotTime must be in HH:mm 24-hour format.' });
+    }
+    if (!isPresentOrFutureDate(appointmentDate)) {
+      return res.status(400).json({ error: 'appointmentDate must be a valid date today or in the future.' });
+    }
 
     const appointment = await Appointment.findById(id);
     if (!appointment) return res.status(404).json({ error: 'Appointment not found.' });
@@ -281,39 +318,56 @@ const getTodayAppointments = async (req, res) => {
   }
 };
 
-// GET /api/appointments/upcoming (Doctor only) — lists ALL of the authenticated doctor's
-// current & future appointments (not just today's), so bookings for any date are visible.
+// GET /api/appointments/upcoming?page=1&limit=10&all=true (Doctor only) — lists the
+// authenticated doctor's current & future appointments. Paginated by default;
+// pass all=true to fetch the full (server-capped) list for Excel export.
 const getUpcomingAppointments = async (req, res) => {
   try {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const appointments = await Appointment.find({
+    const filter = {
       doctorId: req.user.userId,
       appointmentDate: { $gte: startOfToday },
-    })
-      .populate('patientId', 'email phone patientProfile')
-      .populate('clinicId', 'name address')
-      .sort({ appointmentDate: 1, slotTime: 1 });
+    };
+    const { page, limit, skip } = getPagination(req.query, 10);
 
-    return res.status(200).json(appointments);
+    const [total, appointments] = await Promise.all([
+      Appointment.countDocuments(filter),
+      Appointment.find(filter)
+        .populate('patientId', 'email phone patientProfile')
+        .populate('clinicId', 'name address')
+        .sort({ appointmentDate: 1, slotTime: 1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+
+    return res.status(200).json({ data: appointments, pagination: buildPaginationMeta(total, page, limit) });
   } catch (error) {
     console.error('getUpcomingAppointments error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
-// GET /api/appointments/my (Patient only) — lists the authenticated patient's own bookings.
-// Not part of the original spec's exposed endpoints, but required for the patient
-// booking-history UI (AppointmentList.jsx) to have any data source to call.
+// GET /api/appointments/my?page=1&limit=10 (Patient only) — lists the authenticated
+// patient's own bookings, paginated. Not part of the original spec's exposed
+// endpoints, but required for the patient booking-history UI (AppointmentList.jsx).
 const getMyAppointments = async (req, res) => {
   try {
-    const appointments = await Appointment.find({ patientId: req.user.userId })
-      .populate('doctorId', 'email doctorProfile')
-      .populate('clinicId', 'name address')
-      .sort({ appointmentDate: -1 });
+    const filter = { patientId: req.user.userId };
+    const { page, limit, skip } = getPagination(req.query, 10);
 
-    return res.status(200).json(appointments);
+    const [total, appointments] = await Promise.all([
+      Appointment.countDocuments(filter),
+      Appointment.find(filter)
+        .populate('doctorId', 'email doctorProfile')
+        .populate('clinicId', 'name address')
+        .sort({ appointmentDate: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+
+    return res.status(200).json({ data: appointments, pagination: buildPaginationMeta(total, page, limit) });
   } catch (error) {
     console.error('getMyAppointments error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });

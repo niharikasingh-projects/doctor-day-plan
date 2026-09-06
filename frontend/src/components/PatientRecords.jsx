@@ -1,44 +1,56 @@
 import { useState } from 'react';
 import MedicalHistory from './MedicalHistory';
+import Pagination from './Pagination';
 import { searchPatients } from '../api/consultationService';
+
+const PAGE_SIZE = 10;
 
 function PatientRecords() {
   const [query, setQuery] = useState('');
   const [patients, setPatients] = useState([]);
+  const [pagination, setPagination] = useState(null);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState('');
+
+  const runSearch = async (page = 1) => {
+    setIsSearching(true);
+    setError('');
+    try {
+      const result = await searchPatients(query.trim(), { page, limit: PAGE_SIZE });
+      setPatients(result.data || []);
+      setPagination(result.pagination || null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Unable to search patient records.');
+      setPatients([]);
+      setPagination(null);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const handleSearch = async (event) => {
     event.preventDefault();
     if (query.trim().length < 2) {
       setError('Enter at least 2 characters to search.');
       setPatients([]);
+      setPagination(null);
       return;
     }
-
-    setIsSearching(true);
-    setError('');
-    try {
-      setPatients(await searchPatients(query.trim()));
-    } catch (err) {
-      setError(err.response?.data?.error || 'Unable to search patient records.');
-      setPatients([]);
-    } finally {
-      setIsSearching(false);
-    }
+    await runSearch(1);
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <section className="bg-white rounded-xl shadow p-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+      <section className="bg-white rounded-xl shadow p-4 sm:p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Search Patient Records</h2>
         <form onSubmit={handleSearch} className="flex flex-wrap gap-3">
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by patient name, email, or phone"
+            placeholder="Search by patient name, email, phone, or diagnosis/illness (e.g. diabetes)"
+            aria-label="Search patients by name, email, phone, or diagnosis"
             className="flex-1 min-w-[260px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
@@ -66,6 +78,11 @@ function PatientRecords() {
                 <p className="text-xs text-gray-500">
                   {patient.email} {patient.phone ? `· ${patient.phone}` : ''}
                 </p>
+                {patient.matchedDiagnoses?.length > 0 && (
+                  <p className="text-xs text-teal-700 mt-1">
+                    Matched diagnosis: {patient.matchedDiagnoses.join(', ')}
+                  </p>
+                )}
               </button>
             ))}
           </div>
@@ -73,10 +90,18 @@ function PatientRecords() {
         {!isSearching && query.trim().length >= 2 && patients.length === 0 && !error && (
           <p className="text-sm text-gray-500 mt-4">No patients found in your appointment records.</p>
         )}
+
+        <Pagination
+          pagination={pagination}
+          onPageChange={(nextPage) => runSearch(nextPage)}
+          isLoading={isSearching}
+        />
       </section>
 
       {selectedPatient && (
+        // key forces a remount per patient so pagination always restarts at page 1
         <MedicalHistory
+          key={selectedPatient._id}
           patientId={selectedPatient._id}
           title={`${selectedPatient.patientProfile?.name || 'Patient'} — Medical History`}
         />

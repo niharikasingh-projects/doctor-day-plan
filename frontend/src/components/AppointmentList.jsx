@@ -7,6 +7,11 @@ import {
   rescheduleAppointment,
 } from '../api/appointmentService';
 import ConsultationWorkspace from './ConsultationWorkspace';
+import Pagination from './Pagination';
+import DoctorProfileModal from './DoctorProfileModal';
+import { exportToExcel, appointmentToRow } from '../utils/exportExcel';
+
+const PAGE_SIZE = 10;
 
 const STATUS_STYLES = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -20,20 +25,28 @@ const isToday = (dateValue) => new Date(dateValue).toDateString() === new Date()
 
 function AppointmentList({ role, onRefresh }) {
   const [appointments, setAppointments] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState('');
   const [consultationAppointment, setConsultationAppointment] = useState(null);
   const [collapsedDates, setCollapsedDates] = useState({});
   const [reschedulingAppointment, setReschedulingAppointment] = useState(null);
   const [rescheduleForm, setRescheduleForm] = useState({ appointmentDate: '', slotTime: '' });
   const [isRescheduling, setIsRescheduling] = useState(false);
+  const [profileDoctorId, setProfileDoctorId] = useState('');
 
-  const loadAppointments = async () => {
-    setIsLoading(true);
-    setError('');
+  // All setState calls happen after the first await — no synchronous state
+  // updates inside the effect that mounts/re-runs this loader.
+  const loadAppointments = async (pageToLoad = page) => {
     try {
-      const data = role === 'doctor' ? await fetchUpcomingAppointments() : await fetchMyAppointments();
-      setAppointments(data);
+      const result =
+        role === 'doctor'
+          ? await fetchUpcomingAppointments({ page: pageToLoad, limit: PAGE_SIZE })
+          : await fetchMyAppointments({ page: pageToLoad, limit: PAGE_SIZE });
+      setAppointments(result.data || []);
+      setPagination(result.pagination || null);
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to load appointments.');
     } finally {
@@ -42,13 +55,41 @@ function AppointmentList({ role, onRefresh }) {
   };
 
   useEffect(() => {
-    loadAppointments();
+    // Effect-local wrapper: loadAppointments only sets state after awaits, but
+    // the linter only traces effect-local functions (matches the pattern used
+    // in the dashboard components).
+    const load = async () => {
+      await loadAppointments(page);
+    };
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, page]);
+
+  const handlePageChange = (nextPage) => {
+    setIsLoading(true);
+    setError('');
+    setPage(nextPage);
+  };
 
   const refresh = () => {
-    loadAppointments();
+    setIsLoading(true);
+    setError('');
+    loadAppointments(page);
     if (onRefresh) onRefresh();
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setError('');
+    try {
+      const result = await fetchUpcomingAppointments({ all: true });
+      const rows = (result.data || []).map(appointmentToRow);
+      exportToExcel(rows, `appointments-${new Date().toISOString().slice(0, 10)}`, 'Appointments');
+    } catch (err) {
+      setError(err.message || err.response?.data?.error || 'Unable to export appointments.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleStatusUpdate = async (id, status, cancelReason) => {
@@ -97,10 +138,22 @@ function AppointmentList({ role, onRefresh }) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h2 className="text-xl font-semibold text-gray-900 mb-4">
-        {role === 'doctor' ? 'Upcoming Appointments' : 'My Bookings'}
-      </h2>
+    <div className="max-w-4xl mx-auto p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-xl font-semibold text-gray-900">
+          {role === 'doctor' ? 'Upcoming Appointments' : 'My Bookings'}
+        </h2>
+        {role === 'doctor' && appointments.length > 0 && (
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="rounded-lg border border-green-300 text-green-700 px-3 py-1.5 text-sm font-medium hover:bg-green-50 disabled:opacity-50"
+          >
+            {isExporting ? 'Exporting...' : 'Export to Excel'}
+          </button>
+        )}
+      </div>
 
       {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
       {isLoading ? (
@@ -161,7 +214,16 @@ function AppointmentList({ role, onRefresh }) {
                   {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.slotTime}
                 </p>
                 {role === 'patient' && appointment.doctorId?.doctorProfile?.name && (
-                  <p className="text-xs text-gray-400">Dr. {appointment.doctorId.doctorProfile.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => setProfileDoctorId(appointment.doctorId._id)}
+                    className="text-xs text-blue-600 hover:underline text-left"
+                  >
+                    Dr. {appointment.doctorId.doctorProfile.name}
+                    {appointment.doctorId.doctorProfile.specialization
+                      ? ` · ${appointment.doctorId.doctorProfile.specialization}`
+                      : ''}
+                  </button>
                 )}
                 {appointment.checkedInAt && (
                   <p className="text-xs text-gray-400">
@@ -252,12 +314,18 @@ function AppointmentList({ role, onRefresh }) {
         </div>
       )}
 
+      <Pagination pagination={pagination} onPageChange={handlePageChange} isLoading={isLoading} />
+
       {consultationAppointment && (
         <ConsultationWorkspace
           appointment={consultationAppointment}
           onClose={() => setConsultationAppointment(null)}
           onCompleted={refresh}
         />
+      )}
+
+      {profileDoctorId && (
+        <DoctorProfileModal doctorId={profileDoctorId} onClose={() => setProfileDoctorId('')} />
       )}
 
       {reschedulingAppointment && (
