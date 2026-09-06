@@ -1,8 +1,13 @@
+process.env.NODE_ENV = 'test';
+
 const request = require('supertest');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+
+dotenv.config({ path: path.resolve(__dirname, '../.env.test') });
 
 const NOTIFICATIONS_LOG = path.join(__dirname, '..', 'logs', 'notifications.log');
 

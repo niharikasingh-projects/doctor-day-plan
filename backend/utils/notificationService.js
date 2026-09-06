@@ -30,14 +30,35 @@ const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
 
+const isPlaceholderValue = (value) => {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (!normalized) return true;
+  return /^(your-|demo|example|placeholder|changeme|sample|test-?value)/i.test(normalized)
+    || /(?:your-account|your-app-password|your-password|no-reply@doctordayplan\.local)/i.test(normalized)
+    || /\b(placeholder|example)\b/i.test(normalized);
+};
+
 const notificationsEnabled = String(process.env.NOTIFICATIONS_ENABLED || 'true') !== 'false';
 
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'notifications.log');
 
-const smtpConfigured = Boolean(process.env.SMTP_HOST);
+const smtpConfigured = Boolean(
+  process.env.SMTP_HOST &&
+    !isPlaceholderValue(process.env.SMTP_HOST) &&
+    process.env.SMTP_USER &&
+    !isPlaceholderValue(process.env.SMTP_USER) &&
+    process.env.SMTP_PASS &&
+    !isPlaceholderValue(process.env.SMTP_PASS)
+);
 const twilioConfigured = Boolean(
-  process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER
+  process.env.TWILIO_ACCOUNT_SID &&
+    !isPlaceholderValue(process.env.TWILIO_ACCOUNT_SID) &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    !isPlaceholderValue(process.env.TWILIO_AUTH_TOKEN) &&
+    process.env.TWILIO_FROM_NUMBER &&
+    !isPlaceholderValue(process.env.TWILIO_FROM_NUMBER)
 );
 
 let transporter = null;
