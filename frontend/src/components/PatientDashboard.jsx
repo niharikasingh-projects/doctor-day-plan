@@ -75,7 +75,7 @@ function PatientDashboard() {
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
-  const { emergencyNotice, setEmergencyNotice } = useQueueContext();
+  const { emergencyNotice, setEmergencyNotice, appointmentNotice, setAppointmentNotice } = useQueueContext();
 
   useEffect(() => {
     const loadActiveAppointment = async () => {
@@ -289,6 +289,12 @@ function PatientDashboard() {
               </div>
               <button type="button" onClick={() => setEmergencyNotice('')} className="text-sm font-bold text-gray-500 hover:text-gray-900">Dismiss</button>
             </div>
+          </div>
+        )}
+        {appointmentNotice && (
+          <div className="surface mb-4 flex items-center justify-between border-l-4 border-blue-500 p-4 text-sm text-blue-800" role="status">
+            <span>{appointmentNotice}</span>
+            <button type="button" onClick={() => setAppointmentNotice('')} className="font-bold">Dismiss</button>
           </div>
         )}
         {activeTab === 'booking' && <section className="surface p-6 md:p-8">

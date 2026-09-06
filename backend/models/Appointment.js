@@ -29,7 +29,7 @@ const appointmentSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['pending', 'confirmed', 'rejected', 'cancelled', 'completed'],
+        values: ['pending', 'confirmed', 'inConsultation', 'rejected', 'cancelled', 'completed'],
         message: '{VALUE} is not a supported appointment status.',
       },
       default: 'pending',

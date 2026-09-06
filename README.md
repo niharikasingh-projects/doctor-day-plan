@@ -257,12 +257,13 @@ npm run test
 * `AppointmentList.jsx` renders both role-specific views. A doctor can open a confirmed appointment in the consultation workspace.
 * `pending`, `confirmed`, and `completed` appointments reserve a clinic/date/time slot. `cancelled` and `rejected` appointments release that slot, and the Patient Dashboard refreshes availability after booking or cancellation.
 * Doctors can trigger an emergency cancellation (`POST /api/appointments/emergency`). After confirmation, only today's pending and confirmed appointments are cancelled with the doctor's message, affected patients receive a Socket.io `doctorEmergency` notice, and cancelled patients are removed from live queues. Future, completed, rejected, and already-cancelled appointments are preserved.
+* Normal accept, reject, cancel, reschedule, call, and consultation-finished actions emit `appointmentUpdated` notices to the affected user's Socket.io room.
 
 ### Module 4 — Live Queue & Real-Time Updates
-* Socket.io uses the same HTTP server as Express. Queue state is maintained in memory per clinic room and is broadcast through `queueUpdated`.
+* Socket.io uses the same HTTP server as Express. Queue ordering is maintained per clinic room and synchronized with appointment records in MongoDB.
 * Supported events: `joinQueueRoom`, `callNextPatient`, `skipPatient`, and `consultationFinished`.
 * A successful patient check-in adds the appointment to its clinic queue and broadcasts the update. Queue payloads contain `currentPatient`, `waitingQueueArray`, and `estimatedWaitTime`.
-* Doctors use the **Live Queue** dashboard tab to select a clinic, call the next patient, skip a patient, or finish the active consultation. Patients with a checked-in appointment see their live position and estimated wait time.
+* Doctors use the **Live Queue** dashboard tab to select a clinic, call the next patient, skip a patient, or finish the active consultation. Calling a patient persists `inConsultation`; finishing persists `completed`; checked-in queues recover from MongoDB after restart. Patients with a checked-in appointment see their live position and estimated wait time.
 * Frontend socket state is isolated in `QueueContext.jsx` and commands are exposed through `useLiveQueue.js`; socket listeners are removed on cleanup.
 
 ### Module 5 — Consultation & Medical Records
@@ -277,15 +278,22 @@ npm run test
 * The frontend production build passes with Vite.
 * Focused diagnostics pass for the new patient history and records-search components.
 * The full ESLint run still reports older hook/style findings in existing queue, calendar, clinic, appointment, and socket-context files; these do not prevent the production build.
-* High-priority backend integration tests now cover patient registration/password hashing/JWT login, inactive-account rejection, and duplicate appointment-slot prevention. Run them from `backend/` with `npm.cmd test`.
+* Backend integration tests now cover patient registration/password hashing/JWT login, inactive-account rejection, duplicate appointment-slot prevention, profile/clinic schedule updates, and reschedule conflict handling. Run them from `backend/` with `npm.cmd test`.
+* The backend test suite currently contains 2 suites and 9 passing tests, including dedicated live-queue unit tests for deduplication, MongoDB hydration, current-patient recovery, and queue cleanup.
 * Mongoose 9 update operations use `returnDocument: 'after'` instead of the deprecated `new: true` option, so the backend starts without those deprecation warnings.
 
 ### High-Priority Completion Notes
 * Authenticated profile read/update endpoints are available at `GET/PATCH /api/auth/profile`; doctor profiles include editable slot duration and average consultation duration, and inactive accounts cannot log in.
 * Doctors can reschedule pending or confirmed appointments with `PATCH /api/appointments/:id/reschedule`; conflicts are rejected and patient cancellation is limited to appointments that have not yet been confirmed.
-* Live queues recover checked-in confirmed appointments from MongoDB when a clinic room is joined, and repeated check-in requests do not create duplicate queue entries.
+* Live queues recover checked-in confirmed and `inConsultation` appointments from MongoDB when a clinic room is joined, persist call/finish transitions, and repeated check-in requests do not create duplicate queue entries.
+* Normal appointment lifecycle changes emit `appointmentUpdated` notices to affected user rooms; emergency cancellations emit `doctorEmergency` notices.
 
 > **Current queue limitation:** live queue state is intentionally in memory. Restarting the backend clears active queue state, while appointment and consultation records remain in MongoDB. Individual day slots now reflect active `pending`, `confirmed`, and `completed` appointments as disabled; `cancelled` and `rejected` appointments release their slot and make it available again after the selected date is refreshed.
+
+### CI Validation
+The GitHub Actions workflow at `.github/workflows/ci-validation.yml` validates the two workspaces independently on pushes and pull requests to `main` and `develop:
+* Backend job: uses Node.js 24, installs from `backend/package-lock.json`, and runs `npm test` from `backend/`.
+* Frontend job: uses Node.js 24, installs from `frontend/package-lock.json`, and runs the Vite production build from `frontend/`.
 
 ---
 

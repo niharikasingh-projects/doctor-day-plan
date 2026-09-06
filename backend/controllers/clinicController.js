@@ -191,7 +191,7 @@ const getAvailableSlotsForPatient = async (req, res) => {
     const activeAppointments = await Appointment.find({
       clinicId,
       appointmentDate: { $gte: targetDate, $lt: nextDate },
-      status: { $in: ['pending', 'confirmed', 'completed'] },
+      status: { $in: ['pending', 'confirmed', 'inConsultation', 'completed'] },
     }).select('slotTime -_id');
     const bookedSlots = activeAppointments.map((appointment) => appointment.slotTime);
     const bookedSlotSet = new Set(bookedSlots);

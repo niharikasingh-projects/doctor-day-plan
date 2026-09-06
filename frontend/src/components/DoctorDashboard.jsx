@@ -8,6 +8,7 @@ import ProfilePanel from './ProfilePanel';
 import { fetchDoctorClinics } from '../api/clinicService';
 import { logout } from '../api/authService';
 import { triggerDoctorEmergency } from '../api/appointmentService';
+import { useQueueContext } from '../context/QueueContext';
 
 function DoctorDashboard() {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ function DoctorDashboard() {
   const [clinics, setClinics] = useState([]);
   const [selectedClinicId, setSelectedClinicId] = useState('');
   const [emergencyStatus, setEmergencyStatus] = useState('');
+  const { appointmentNotice, setAppointmentNotice } = useQueueContext();
   const [isEmergencyDialogOpen, setIsEmergencyDialogOpen] = useState(false);
   const [emergencyReason, setEmergencyReason] = useState(
     'Doctor emergency: the doctor is unavailable today. Please reschedule your appointment.'
@@ -120,6 +122,12 @@ function DoctorDashboard() {
 
       <main className="dashboard-main">
         {emergencyStatus && <p className="mx-auto mb-4 max-w-5xl rounded-lg bg-red-50 p-3 text-sm font-medium text-red-700">{emergencyStatus}</p>}
+        {appointmentNotice && (
+          <div className="mx-auto mb-4 flex max-w-5xl items-center justify-between rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-800" role="status">
+            <span>{appointmentNotice}</span>
+            <button type="button" onClick={() => setAppointmentNotice('')} className="font-bold">Dismiss</button>
+          </div>
+        )}
         {activeTab === 'clinics' && <ClinicManager />}
         {activeTab === 'appointments' && <AppointmentList role="doctor" />}
         {activeTab === 'records' && <PatientRecords />}
