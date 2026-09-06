@@ -18,6 +18,24 @@ function Register() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Switching Patient/Doctor starts the form fresh — no leaked field values
+  // (e.g. a license number typed on the doctor tab) and no stale error messages.
+  const handleRoleChange = (nextRole) => {
+    if (nextRole === role) return;
+    setRole(nextRole);
+    setFormData({
+      email: '',
+      password: '',
+      phone: '',
+      name: '',
+      dob: '',
+      gender: 'Female',
+      specialization: '',
+      licenseNumber: '',
+    });
+    setError('');
+  };
+
   const handleChange = (event) => {
     const { name, value } = event.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -88,7 +106,7 @@ function Register() {
         <div className="flex rounded-lg border border-gray-300 overflow-hidden mb-6">
           <button
             type="button"
-            onClick={() => setRole('patient')}
+            onClick={() => handleRoleChange('patient')}
             className={`flex-1 py-2 text-sm font-medium ${
               role === 'patient' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
@@ -97,7 +115,7 @@ function Register() {
           </button>
           <button
             type="button"
-            onClick={() => setRole('doctor')}
+            onClick={() => handleRoleChange('doctor')}
             className={`flex-1 py-2 text-sm font-medium ${
               role === 'doctor' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}

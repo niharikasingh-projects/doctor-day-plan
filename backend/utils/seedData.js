@@ -69,6 +69,7 @@ const CLINIC_NAMES = [
   'City Cardiac Care',
   'Skin & Glow Dermatology',
   'Pune Wellness Centre',
+  'Heritage Heart Institute (Closed)',
 ];
 const MEDICINE_NAMES = ['Atorvastatin 10', 'Cetirizine 10', 'Pantoprazole 40'];
 
@@ -167,6 +168,34 @@ const seed = async () => {
       console.log(`Created doctor: ${doctor.email} (id: ${doctor._id})`);
     }
 
+    // ------------------------------------------------------------------
+    // Orphan clinic adoption: re-creating the seed doctors above gives them
+    // NEW ObjectIds, which would orphan any manually-created clinic whose
+    // doctorId pointed at a previous seed account (this is what broke
+    // "Pune City Clinic"). Re-point those clinics at the replacement doctor —
+    // prefer the same specialization, else the first new seed doctor.
+    // ------------------------------------------------------------------
+    const newDoctorIds = createdDoctors.map((doctor) => doctor._id);
+    const candidateOrphans = await Clinic.find({ doctorId: { $nin: newDoctorIds } });
+    const orphanedClinics = [];
+    for (const orphanCandidate of candidateOrphans) {
+      // eslint-disable-next-line no-await-in-loop
+      const ownerExists = await User.exists({ _id: orphanCandidate.doctorId, role: 'doctor' });
+      if (!ownerExists) orphanedClinics.push(orphanCandidate);
+    }
+    for (const orphanedClinic of orphanedClinics) {
+      const clinicText = `${orphanedClinic.name} ${orphanedClinic.address}`.toLowerCase();
+      const replacement =
+        createdDoctors.find((doctor) =>
+          clinicText.includes(String(doctor.doctorProfile?.specialization || '').toLowerCase())
+        ) || createdDoctors[0];
+      // eslint-disable-next-line no-await-in-loop
+      await Clinic.updateOne({ _id: orphanedClinic._id }, { $set: { doctorId: replacement._id } });
+      console.log(
+        `Adopted orphaned clinic: ${orphanedClinic.name} -> ${replacement.email} (was pointing at a deleted doctor)`
+      );
+    }
+
     const createdPatients = [];
     for (const patientData of PATIENTS) {
       const patient = new User({ ...patientData, role: 'patient' });
@@ -224,6 +253,18 @@ const seed = async () => {
           { dayOfWeek: 'Tuesday', startTime: '09:00', endTime: '13:00' },
           { dayOfWeek: 'Thursday', startTime: '09:00', endTime: '13:00' },
           { dayOfWeek: 'Saturday', startTime: '09:00', endTime: '12:00' },
+        ],
+      },
+      // Closed demo clinic: stays visible (disabled, marked "Closed") in the
+      // patient booking dropdown and rejects bookings server-side.
+      {
+        doctorId: drPriya._id,
+        name: 'Heritage Heart Institute (Closed)',
+        address: '5 Bund Garden Road, Pune, Maharashtra',
+        contactPhone: '+912067890124',
+        status: 'inactive',
+        scheduleRules: [
+          { dayOfWeek: 'Monday', startTime: '09:00', endTime: '13:00' },
         ],
       },
     ];

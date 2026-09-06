@@ -221,11 +221,18 @@ const downloadPrescription = async (req, res) => {
       return res.status(404).json({ error: 'Consultation not found.' });
     }
 
-    const isOwner =
-      String(consultation.doctorId?._id) === String(req.user.userId) ||
-      String(consultation.patientId?._id) === String(req.user.userId);
-
-    if (!isOwner) {
+    if (req.user.role === 'doctor') {
+      // Mirror the getHistory authorization: any doctor who has treated this
+      // patient may download prescriptions from that patient's history — not
+      // just the doctor who authored this specific consultation.
+      const hasTreatedPatient = await Appointment.exists({
+        doctorId: req.user.userId,
+        patientId: consultation.patientId?._id || consultation.patientId,
+      });
+      if (!hasTreatedPatient) {
+        return res.status(403).json({ error: 'You do not have permission to download this prescription.' });
+      }
+    } else if (String(consultation.patientId?._id) !== String(req.user.userId)) {
       return res.status(403).json({ error: 'You do not have permission to download this prescription.' });
     }
 

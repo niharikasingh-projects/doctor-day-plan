@@ -21,6 +21,15 @@ function Pagination({ pagination, onPageChange, isLoading = false }) {
         <button
           type="button"
           disabled={isLoading || page <= 1}
+          onClick={() => onPageChange(1)}
+          aria-label="First page"
+          className="pagination-button"
+        >
+          &laquo; First
+        </button>
+        <button
+          type="button"
+          disabled={isLoading || page <= 1}
           onClick={() => onPageChange(page - 1)}
           className="pagination-button"
         >
@@ -45,6 +54,15 @@ function Pagination({ pagination, onPageChange, isLoading = false }) {
           className="pagination-button"
         >
           Next
+        </button>
+        <button
+          type="button"
+          disabled={isLoading || page >= totalPages}
+          onClick={() => onPageChange(totalPages)}
+          aria-label="Last page"
+          className="pagination-button"
+        >
+          Last &raquo;
         </button>
       </div>
     </nav>

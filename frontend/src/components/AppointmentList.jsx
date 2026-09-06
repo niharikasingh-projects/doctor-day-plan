@@ -23,11 +23,328 @@ const STATUS_STYLES = {
 
 const isToday = (dateValue) => new Date(dateValue).toDateString() === new Date().toDateString();
 
+const dateKeyOf = (dateValue) => new Date(dateValue).toISOString().slice(0, 10);
+
+const formatGroupDate = (dateValue) =>
+  new Date(dateValue).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+// Groups appointments by date (in the order received — the API pre-sorts by
+// date then slot), and within each date groups by clinic.
+const groupByDateThenClinic = (appointments) => {
+  const dateMap = new Map();
+  appointments.forEach((appointment) => {
+    const dateKey = dateKeyOf(appointment.appointmentDate);
+    if (!dateMap.has(dateKey)) dateMap.set(dateKey, new Map());
+    const clinicMap = dateMap.get(dateKey);
+    const clinicKey = appointment.clinicId?._id || appointment.clinicId || 'unknown-clinic';
+    if (!clinicMap.has(clinicKey)) clinicMap.set(clinicKey, []);
+    clinicMap.get(clinicKey).push(appointment);
+  });
+  return [...dateMap.entries()].map(([dateKey, clinicMap]) => ({
+    dateKey,
+    appointmentCount: [...clinicMap.values()].reduce((sum, list) => sum + list.length, 0),
+    clinicGroups: [...clinicMap.entries()].map(([clinicKey, items]) => ({
+      clinicKey,
+      clinicName: items[0]?.clinicId?.name || 'Clinic',
+      items,
+    })),
+  }));
+};
+
+// Single appointment card with all role-specific actions.
+function AppointmentCard({
+  appointment,
+  role,
+  onStatusUpdate,
+  onCheckIn,
+  onReschedule,
+  onStartConsultation,
+  onViewDoctorProfile,
+}) {
+  return (
+    <div className="bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="font-medium text-gray-900">
+          {role === 'doctor'
+            ? appointment.patientId?.patientProfile?.name || appointment.patientId?.email
+            : appointment.clinicId?.name || 'Clinic'}
+        </p>
+        <p className="text-sm text-gray-500">
+          {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.slotTime}
+        </p>
+        {role === 'patient' && appointment.doctorId?.doctorProfile?.name && (
+          <button
+            type="button"
+            onClick={() => onViewDoctorProfile(appointment.doctorId._id)}
+            className="text-xs text-blue-600 hover:underline text-left"
+          >
+            Dr. {appointment.doctorId.doctorProfile.name}
+            {appointment.doctorId.doctorProfile.specialization
+              ? ` · ${appointment.doctorId.doctorProfile.specialization}`
+              : ''}
+          </button>
+        )}
+        {appointment.checkedInAt && (
+          <p className="text-xs text-gray-400">
+            Checked in at {new Date(appointment.checkedInAt).toLocaleTimeString()}
+          </p>
+        )}
+        {appointment.cancelReason && (
+          <p className="text-xs text-gray-400">Reason: {appointment.cancelReason}</p>
+        )}
+      </div>
+
+      <span
+        className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_STYLES[appointment.status] || 'bg-gray-100 text-gray-600'}`}
+      >
+        {appointment.status}
+      </span>
+
+      <div className="flex gap-2">
+        {role === 'doctor' && appointment.status === 'pending' && (
+          <>
+            <button
+              type="button"
+              onClick={() => onStatusUpdate(appointment._id, 'confirmed')}
+              className="rounded-lg bg-green-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-green-700"
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              onClick={() => onStatusUpdate(appointment._id, 'rejected')}
+              className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-red-700"
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              onClick={() => onReschedule(appointment)}
+              className="rounded-lg border border-blue-200 text-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-50"
+            >
+              Reschedule
+            </button>
+          </>
+        )}
+
+        {role === 'doctor' && appointment.status === 'confirmed' && (
+          <button
+            type="button"
+            onClick={() => onStartConsultation(appointment)}
+            className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700"
+          >
+            Complete Consultation
+          </button>
+        )}
+
+        {role === 'patient' &&
+          ['pending', 'confirmed'].includes(appointment.status) &&
+          isToday(appointment.appointmentDate) &&
+          !appointment.checkedInAt && (
+            <button
+              type="button"
+              onClick={() => onCheckIn(appointment._id)}
+              className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700"
+            >
+              Check-In
+            </button>
+          )}
+
+        {role === 'patient' && ['pending', 'confirmed'].includes(appointment.status) && (
+          <button
+            type="button"
+            onClick={() => {
+              const reason = window.prompt('Reason for cancellation:');
+              if (reason) onStatusUpdate(appointment._id, 'cancelled', reason);
+            }}
+            className="rounded-lg border border-red-300 text-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-50"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Doctor view: today's bookings pinned to the top in a highlighted panel,
+// followed by every upcoming date — each date subgrouped by clinic.
+function DoctorGroupedAppointments({ appointments, collapsedDates, setCollapsedDates, cardProps }) {
+  const todaysAppointments = appointments.filter((appointment) => isToday(appointment.appointmentDate));
+  const futureAppointments = appointments.filter((appointment) => !isToday(appointment.appointmentDate));
+
+  const renderClinicGroup = ({ clinicKey, clinicName, items }) => (
+    <div key={clinicKey} className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wide text-teal-700">
+        {clinicName}
+        <span className="ml-2 font-medium normal-case text-gray-400">
+          {items.length} {items.length === 1 ? 'booking' : 'bookings'}
+        </span>
+      </p>
+      {items.map((appointment) => (
+        <AppointmentCard key={appointment._id} appointment={appointment} {...cardProps} />
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {todaysAppointments.length > 0 && (
+        <section className="today-panel">
+          <h3 className="text-sm font-bold text-teal-900 mb-1">Today&apos;s Bookings</h3>
+          <p className="text-xs text-teal-800 mb-3">
+            {formatGroupDate(new Date())} · {todaysAppointments.length}{' '}
+            {todaysAppointments.length === 1 ? 'appointment' : 'appointments'}
+          </p>
+          <div className="space-y-4">
+            {groupByDateThenClinic(todaysAppointments).flatMap((dateGroup) =>
+              dateGroup.clinicGroups.map(renderClinicGroup)
+            )}
+          </div>
+        </section>
+      )}
+
+      {futureAppointments.length > 0 && (
+        <div className="space-y-3">
+          {todaysAppointments.length > 0 && (
+            <h3 className="text-sm font-bold text-gray-700 pt-2">Later dates</h3>
+          )}
+          {groupByDateThenClinic(futureAppointments).map((dateGroup) => {
+            const isCollapsed = collapsedDates[dateGroup.dateKey] === true;
+            return (
+              <div key={dateGroup.dateKey}>
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() =>
+                    setCollapsedDates((previous) => ({
+                      ...previous,
+                      [dateGroup.dateKey]: !isCollapsed,
+                    }))
+                  }
+                  className="date-group-toggle"
+                >
+                  <span className={`date-group-chevron ${isCollapsed ? 'is-collapsed' : ''}`} aria-hidden="true" />
+                  <span>
+                    {new Date(`${dateGroup.dateKey}T00:00:00`).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                  <span className="date-group-count">
+                    {dateGroup.appointmentCount} {dateGroup.appointmentCount === 1 ? 'appointment' : 'appointments'}
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-4 mt-2">
+                    {dateGroup.clinicGroups.map(renderClinicGroup)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Patient view: today's bookings pinned to the top in a highlighted panel
+// (grouped by clinic, same as the doctor view), followed by all other dates
+// with collapsible date headers.
+function PatientGroupedAppointments({ appointments, collapsedDates, setCollapsedDates, cardProps }) {
+  const todaysAppointments = appointments.filter((appointment) => isToday(appointment.appointmentDate));
+  const otherAppointments = appointments.filter((appointment) => !isToday(appointment.appointmentDate));
+
+  const renderCard = (appointment) => (
+    <AppointmentCard key={appointment._id} appointment={appointment} {...cardProps} />
+  );
+
+  return (
+    <div className="space-y-6">
+      {todaysAppointments.length > 0 && (
+        <section className="today-panel">
+          <h3 className="text-sm font-bold text-teal-900 mb-1">Today&apos;s Bookings</h3>
+          <p className="text-xs text-teal-800 mb-3">
+            {formatGroupDate(new Date())} · {todaysAppointments.length}{' '}
+            {todaysAppointments.length === 1 ? 'appointment' : 'appointments'}
+          </p>
+          <div className="space-y-4">
+            {groupByDateThenClinic(todaysAppointments).flatMap((dateGroup) =>
+              dateGroup.clinicGroups.map(({ clinicKey, clinicName, items }) => (
+                <div key={clinicKey} className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal-700">
+                    {clinicName}
+                    <span className="ml-2 font-medium normal-case text-gray-400">
+                      {items.length} {items.length === 1 ? 'booking' : 'bookings'}
+                    </span>
+                  </p>
+                  {items.map(renderCard)}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
+      {otherAppointments.length > 0 && (
+        <div className="space-y-3">
+          {todaysAppointments.length > 0 && (
+            <h3 className="text-sm font-bold text-gray-700 pt-2">Other dates</h3>
+          )}
+          {groupByDateThenClinic(otherAppointments).map((dateGroup) => {
+            const isCollapsed = collapsedDates[dateGroup.dateKey] === true;
+            return (
+              <div key={dateGroup.dateKey}>
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() =>
+                    setCollapsedDates((previous) => ({
+                      ...previous,
+                      [dateGroup.dateKey]: !isCollapsed,
+                    }))
+                  }
+                  className="date-group-toggle"
+                >
+                  <span className={`date-group-chevron ${isCollapsed ? 'is-collapsed' : ''}`} aria-hidden="true" />
+                  <span>
+                    {new Date(`${dateGroup.dateKey}T00:00:00`).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                  <span className="date-group-count">
+                    {dateGroup.appointmentCount} {dateGroup.appointmentCount === 1 ? 'appointment' : 'appointments'}
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-2 mt-2">
+                    {dateGroup.clinicGroups.flatMap((clinicGroup) => clinicGroup.items.map(renderCard))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppointmentList({ role, onRefresh }) {
   const [appointments, setAppointments] = useState([]);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [pagination, setPagination] = useState(null);  const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState('');
   const [consultationAppointment, setConsultationAppointment] = useState(null);
@@ -160,158 +477,34 @@ function AppointmentList({ role, onRefresh }) {
         <p className="text-gray-500">Loading...</p>
       ) : appointments.length === 0 ? (
         <p className="text-gray-500">No appointments found.</p>
+      ) : role === 'doctor' ? (
+        <DoctorGroupedAppointments
+          appointments={appointments}
+          collapsedDates={collapsedDates}
+          setCollapsedDates={setCollapsedDates}
+          cardProps={{
+            role,
+            onStatusUpdate: handleStatusUpdate,
+            onCheckIn: handleCheckIn,
+            onReschedule: handleReschedule,
+            onStartConsultation: setConsultationAppointment,
+            onViewDoctorProfile: setProfileDoctorId,
+          }}
+        />
       ) : (
-        <div className="space-y-3">
-          {appointments.map((appointment, index) => {
-            const appointmentDateKey = new Date(appointment.appointmentDate).toISOString().slice(0, 10);
-            const previousDateKey = index > 0
-              ? new Date(appointments[index - 1].appointmentDate).toISOString().slice(0, 10)
-              : null;
-            const isNewDate = appointmentDateKey !== previousDateKey;
-            const isCollapsed = collapsedDates[appointmentDateKey] === true;
-            const appointmentCount = isNewDate
-              ? appointments.filter(
-                  (item) => new Date(item.appointmentDate).toISOString().slice(0, 10) === appointmentDateKey
-                ).length
-              : 0;
-
-            return (
-              <div key={appointment._id}>
-                {isNewDate && (
-                  <button
-                    type="button"
-                    aria-expanded={!isCollapsed}
-                    onClick={() =>
-                      setCollapsedDates((previous) => ({
-                        ...previous,
-                        [appointmentDateKey]: !isCollapsed,
-                      }))
-                    }
-                    className="date-group-toggle"
-                  >
-                    <span className={`date-group-chevron ${isCollapsed ? 'is-collapsed' : ''}`} aria-hidden="true" />
-                    <span>
-                      {new Date(appointment.appointmentDate).toLocaleDateString('en-US', {
-                        weekday: 'long',
-                        month: 'long',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </span>
-                    <span className="date-group-count">
-                      {appointmentCount} {appointmentCount === 1 ? 'appointment' : 'appointments'}
-                    </span>
-                  </button>
-                )}
-                <div className={isCollapsed ? 'hidden' : 'bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3'}>
-              <div>
-                <p className="font-medium text-gray-900">
-                  {role === 'doctor'
-                    ? appointment.patientId?.patientProfile?.name || appointment.patientId?.email
-                    : appointment.clinicId?.name || 'Clinic'}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.slotTime}
-                </p>
-                {role === 'patient' && appointment.doctorId?.doctorProfile?.name && (
-                  <button
-                    type="button"
-                    onClick={() => setProfileDoctorId(appointment.doctorId._id)}
-                    className="text-xs text-blue-600 hover:underline text-left"
-                  >
-                    Dr. {appointment.doctorId.doctorProfile.name}
-                    {appointment.doctorId.doctorProfile.specialization
-                      ? ` · ${appointment.doctorId.doctorProfile.specialization}`
-                      : ''}
-                  </button>
-                )}
-                {appointment.checkedInAt && (
-                  <p className="text-xs text-gray-400">
-                    Checked in at {new Date(appointment.checkedInAt).toLocaleTimeString()}
-                  </p>
-                )}
-                {appointment.cancelReason && (
-                  <p className="text-xs text-gray-400">Reason: {appointment.cancelReason}</p>
-                )}
-              </div>
-
-              <span
-                className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_STYLES[appointment.status] || 'bg-gray-100 text-gray-600'}`}
-              >
-                {appointment.status}
-              </span>
-
-              <div className="flex gap-2">
-                {role === 'doctor' && appointment.status === 'pending' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleStatusUpdate(appointment._id, 'confirmed')}
-                      className="rounded-lg bg-green-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-green-700"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStatusUpdate(appointment._id, 'rejected')}
-                      className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-red-700"
-                    >
-                      Reject
-                    </button>
-                  </>
-                )}
-
-                {role === 'doctor' && appointment.status === 'pending' && (
-                  <button
-                    type="button"
-                    onClick={() => handleReschedule(appointment)}
-                    className="rounded-lg border border-blue-200 text-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-50"
-                  >
-                    Reschedule
-                  </button>
-                )}
-
-                {role === 'doctor' && appointment.status === 'confirmed' && (
-                  <button
-                    type="button"
-                    onClick={() => setConsultationAppointment(appointment)}
-                    className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700"
-                  >
-                    Complete Consultation
-                  </button>
-                )}
-
-                {role === 'patient' &&
-                  ['pending', 'confirmed'].includes(appointment.status) &&
-                  isToday(appointment.appointmentDate) &&
-                  !appointment.checkedInAt && (
-                    <button
-                      type="button"
-                      onClick={() => handleCheckIn(appointment._id)}
-                      className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700"
-                    >
-                      Check-In
-                    </button>
-                  )}
-
-                {role === 'patient' && ['pending', 'confirmed'].includes(appointment.status) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const reason = window.prompt('Reason for cancellation:');
-                      if (reason) handleStatusUpdate(appointment._id, 'cancelled', reason);
-                    }}
-                    className="rounded-lg border border-red-300 text-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-50"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <PatientGroupedAppointments
+          appointments={appointments}
+          collapsedDates={collapsedDates}
+          setCollapsedDates={setCollapsedDates}
+          cardProps={{
+            role,
+            onStatusUpdate: handleStatusUpdate,
+            onCheckIn: handleCheckIn,
+            onReschedule: handleReschedule,
+            onStartConsultation: setConsultationAppointment,
+            onViewDoctorProfile: setProfileDoctorId,
+          }}
+        />
       )}
 
       <Pagination pagination={pagination} onPageChange={handlePageChange} isLoading={isLoading} />

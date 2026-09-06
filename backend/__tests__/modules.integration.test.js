@@ -468,3 +468,55 @@ test('doctor public profile exposes license number to patients', async () => {
   expect(response.body.doctor.name).toBe('Doctor public');
   expect(response.body.clinics).toHaveLength(1);
 });
+
+test('a doctor who treated a patient can download prescriptions written by another doctor', async () => {
+  // Consultation authored by doctor A...
+  const { doctor: authorDoctor, patient, clinic } = await seedDoctorPatientClinic('author');
+  const appointment = await Appointment.create({
+    doctorId: authorDoctor._id,
+    patientId: patient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-10',
+    slotTime: '09:00',
+    status: 'completed',
+  });
+  const consultation = await Consultation.create({
+    appointmentId: appointment._id,
+    patientId: patient._id,
+    doctorId: authorDoctor._id,
+    clinicId: clinic._id,
+    diagnosis: 'Hypertension',
+    medicines: [{ name: 'Pantoprazole 40', dosage: '1-0-0', durationDays: 7 }],
+  });
+
+  // ...while doctor B has their own appointment with the same patient.
+  const { doctor: viewingDoctor, clinic: viewingClinic, doctorToken: viewingToken } =
+    await seedDoctorPatientClinic('viewer');
+  await Appointment.create({
+    doctorId: viewingDoctor._id,
+    patientId: patient._id,
+    clinicId: viewingClinic._id,
+    appointmentDate: '2026-08-12',
+    slotTime: '09:00',
+    status: 'confirmed',
+  });
+
+  const allowed = await request(app)
+    .get(`/api/consultations/${consultation._id}/download`)
+    .set('Authorization', `Bearer ${viewingToken}`)
+    .buffer(true)
+    .parse((res, callback) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => callback(null, Buffer.concat(chunks)));
+    });
+  expect(allowed.statusCode).toBe(200);
+  expect(allowed.headers['content-type']).toContain('application/pdf');
+
+  // A doctor with no relationship to the patient is still rejected.
+  const { doctorToken: strangerToken } = await seedDoctorPatientClinic('stranger');
+  const forbidden = await request(app)
+    .get(`/api/consultations/${consultation._id}/download`)
+    .set('Authorization', `Bearer ${strangerToken}`);
+  expect(forbidden.statusCode).toBe(403);
+});

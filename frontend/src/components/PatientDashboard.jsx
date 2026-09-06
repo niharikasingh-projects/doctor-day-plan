@@ -57,6 +57,7 @@ function PatientDashboard() {
   const today = new Date();
   const patientName = localStorage.getItem('name');
   const [activeTab, setActiveTab] = useState('booking');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const [clinics, setClinics] = useState([]);
   const [isLoadingClinics, setIsLoadingClinics] = useState(true);
@@ -159,11 +160,17 @@ function PatientDashboard() {
   };
 
   const handleClinicChange = (event) => {
+    // Reset the previous clinic's calendar and slot view so no stale
+    // availability, date, or slot selection carries over to the new clinic.
     setSelectedClinicId(event.target.value);
+    setAvailability({});
     setSelectedDate('');
     setSlots([]);
     setDisabledSlots([]);
     setSelectedSlot('');
+    setStatus('');
+    setCalendarYear(today.getFullYear());
+    setCalendarMonth(today.getMonth());
   };
 
   const handleCityChange = (event) => {
@@ -175,9 +182,15 @@ function PatientDashboard() {
     setSelectedSlot('');
   };
 
-  const clinicsInSelectedCity = clinics.filter((clinic) =>
-    selectedCity ? clinic.address.toLowerCase().includes(selectedCity.toLowerCase()) : false
-  );
+  // Word-boundary contains match so short city names (e.g. "Pune") cannot
+  // partially match inside longer ones (e.g. a street named "Puneeth"), while
+  // still matching addresses like "Viman Nagar, Pune". Closed clinics are
+  // never filtered out here — they render disabled with a "Closed" marker.
+  const clinicsInSelectedCity = clinics.filter((clinic) => {
+    if (!selectedCity) return false;
+    const addressPattern = new RegExp(`(^|[^a-z])${selectedCity.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`);
+    return addressPattern.test((clinic.address || '').toLowerCase());
+  });
 
   const changeMonth = (delta) => {
     setSelectedDate('');
@@ -240,6 +253,18 @@ function PatientDashboard() {
     }
   };
 
+  const PATIENT_TABS = [
+    { id: 'booking', label: 'Book Appointment' },
+    { id: 'bookings', label: 'My Bookings' },
+    { id: 'history', label: 'My Medical History' },
+    { id: 'profile', label: 'Profile' },
+  ];
+
+  const handleTabSelect = (tabId) => {
+    setActiveTab(tabId);
+    setIsMenuOpen(false);
+  };
+
   return (
     <div className="app-shell">
       <header className="app-header flex flex-wrap items-center justify-between gap-3 sm:gap-5">
@@ -250,39 +275,64 @@ function PatientDashboard() {
           <p className="text-xs text-gray-500 mt-1">Your care journey {patientName && `· ${patientName}`}</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <nav className="tab-strip overflow-x-auto max-w-full">
-            <button
-              type="button"
-              onClick={() => setActiveTab('booking')}
-              aria-current={activeTab === 'booking' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'booking' ? 'is-active' : ''}`}
-            >
-              Book Appointment
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('bookings')}
-              aria-current={activeTab === 'bookings' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'bookings' ? 'is-active' : ''}`}
-            >
-              My Bookings
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('history')}
-              aria-current={activeTab === 'history' ? 'page' : undefined}
-              className={`tab-button ${activeTab === 'history' ? 'is-active' : ''}`}
-            >
-              My Medical History
-            </button>
-            <button type="button" onClick={() => setActiveTab('profile')} aria-current={activeTab === 'profile' ? 'page' : undefined} className={`tab-button ${activeTab === 'profile' ? 'is-active' : ''}`}>
-              Profile
-            </button>
+          {/* Collapsible hamburger menu — mobile only */}
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            aria-expanded={isMenuOpen}
+            aria-controls="patient-mobile-menu"
+            aria-label="Toggle navigation menu"
+            className="hamburger-button"
+          >
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+            <span className={`hamburger-line ${isMenuOpen ? 'is-open' : ''}`} />
+          </button>
+
+          {/* Inline tab strip — desktop/tablet only */}
+          <nav className="tab-strip overflow-x-auto max-w-full hidden md:flex">
+            {PATIENT_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabSelect(tab.id)}
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`tab-button ${activeTab === tab.id ? 'is-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </nav>
-          <button type="button" onClick={handleLogout} className="text-sm font-bold text-red-600 hover:underline">
+          <button type="button" onClick={handleLogout} className="hidden md:inline-block text-sm font-bold text-red-600 hover:underline">
             Logout
           </button>
         </div>
+
+        {/* Collapsible mobile menu */}
+        {isMenuOpen && (
+          <div id="patient-mobile-menu" className="mobile-menu">
+            <nav className="flex flex-col gap-1">
+              {PATIENT_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleTabSelect(tab.id)}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                  className={`mobile-menu-item ${activeTab === tab.id ? 'is-active' : ''}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mobile-menu-item text-red-600"
+              >
+                Logout
+              </button>
+            </nav>
+          </div>
+        )}
       </header>
 
       <main className="dashboard-main space-y-8">
@@ -334,7 +384,8 @@ function PatientDashboard() {
             </div>
 
             {/* The clinic picker appears only after a city is chosen. Closed
-                clinics stay visible but are marked and cannot be selected. */}
+                clinics stay visible but are marked and cannot be selected.
+                items-start on the grid keeps the two dropdowns top-aligned. */}
             {selectedCity && (
               <div className="field-group">
                 <label htmlFor="clinicSelect" className="block text-sm font-medium text-gray-700 mb-1">
@@ -363,21 +414,29 @@ function PatientDashboard() {
                     </option>
                   ))}
                 </select>
-                {selectedClinicId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const clinic = clinics.find((item) => item._id === selectedClinicId);
-                      if (clinic?.doctorId?._id) setProfileDoctorId(clinic.doctorId._id);
-                    }}
-                    className="mt-2 text-sm font-medium text-blue-600 hover:underline"
-                  >
-                    View doctor profile
-                  </button>
-                )}
               </div>
             )}
           </div>
+
+          {/* Kept outside the dropdown grid so it never disturbs the
+              City/Clinic column alignment. */}
+          {selectedCity && selectedClinicId && (
+            <button
+              type="button"
+              onClick={() => {
+                const clinic = clinics.find((item) => item._id === selectedClinicId);
+                const doctorId = clinic?.doctorId?._id || clinic?.doctorId;
+                if (doctorId) {
+                  setProfileDoctorId(String(doctorId));
+                } else {
+                  setStatus('Doctor details are unavailable for this clinic.');
+                }
+              }}
+              className="mb-6 text-sm font-medium text-blue-600 hover:underline"
+            >
+              View doctor profile
+            </button>
+          )}
 
           {selectedClinicId && (
             <div className="flex flex-wrap gap-6 items-start">

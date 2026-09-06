@@ -10,6 +10,7 @@ DoctorDayPlan is a doctor-centric practice management platform designed for inde
 * **Real-Time Live Queue:** Seamless WebSocket state synchronization utilizing Socket.io to stream real-time queue positions and wait times.
 * **Digital Prescription Desk:** Integrated server-side compilation streaming professional PDF documents instantly on-demand using PDFKit.
 * **New in v1.1:** Forgot/reset password flow, mandatory doctor license verification with a patient-facing doctor profile view, diagnosis/illness patient search, one-click Excel exports (SheetJS), server-side pagination on all large lists, closed-clinic visibility in booking, fully validated forms with labels and hints, and a mobile-responsive UI.
+* **Latest refinements:** bookings views pinned with a highlighted **Today's Bookings** panel grouped by clinic (both roles), collapsible hamburger navigation on mobile, and first/last page controls in pagination.
 
 ---
 
@@ -246,7 +247,7 @@ npm run test
 
 ---
 
-## ✅ Implemented Functionality (Modules 1–5)
+## ✅ Implemented Functionality (Modules 1–5 + v1.1 enhancements)
 
 ### Module 1 — Authentication & Access
 * Patient self-registration (`POST /api/auth/register`) and doctor self-registration (`POST /api/auth/register/doctor`); passwords are hashed via a `bcrypt` pre-save hook on the `User` model (never stored in plaintext).
@@ -270,6 +271,7 @@ npm run test
 * Patients book slots (`POST /api/appointments`); double-booking is blocked at the database level via a compound unique index on `[clinicId, appointmentDate, slotTime]`.
 * Doctors accept/reject appointments and patients cancel with a reason (`PATCH /api/appointments/:id/status`); patients can check in (`PATCH /api/appointments/:id/checkin`).
 * Doctors can view today's appointments (`GET /api/appointments/today`) or all current/future appointments (`GET /api/appointments/upcoming`); patients view their own booking history (`GET /api/appointments/my`). **All three list endpoints are paginated** — they return `{ data, pagination: { total, page, limit, totalPages } }` and accept `page`/`limit` (default 1/10, max 100) or `all=true` (server-capped at 5000) for exports.
+* **Grouped booking views:** both the doctor's Appointments tab and the patient's My Bookings tab open with a highlighted **Today's Bookings** panel grouped by clinic, followed by collapsible per-date groups — the doctor's dates are subgrouped by clinic as well. A shared `AppointmentCard` component renders every row, so role-specific actions stay identical across views.
 * Doctors can export all upcoming appointments to a real `.xlsx` workbook in one click (`AppointmentList.jsx` → SheetJS `xlsx` via `frontend/src/utils/exportExcel.js`).
 * `AppointmentList.jsx` renders both role-specific views. A doctor can open a confirmed appointment in the consultation workspace.
 * `pending`, `confirmed`, and `completed` appointments reserve a clinic/date/time slot. `cancelled` and `rejected` appointments release that slot, and the Patient Dashboard refreshes availability after booking or cancellation.
@@ -288,18 +290,19 @@ npm run test
 * Patients can view their own history and doctors can view history for patients they have treated (`GET /api/consultations/patient/:patientId`, paginated; `all=true` for export). Both doctor and patient history views offer **Export to Excel** for the full record set.
 * Doctors can search patients associated with their appointments by name, email, phone, **or past diagnosis/illness** (`GET /api/consultations/search?query=...`). The search is doctor-only, returns only that doctor's known patients, and includes a `matchedDiagnoses` list for diagnosis hits.
 * Authorized doctors and patients can download prescriptions (`GET /api/consultations/:id/download`). PDFKit streams the PDF directly to the Express response; no PDF is saved to application disk. The frontend verifies the `application/pdf` content type before saving and surfaces server errors instead of saving broken files.
+* **Download authorization mirrors history authorization:** any doctor who has treated a patient can download prescriptions from that patient's history — including ones authored by another doctor — while unrelated doctors are still rejected with 403.
 * `ConsultationWorkspace.jsx` provides the diagnosis form, dynamic medicine rows, history timeline, and PDF download controls. `MedicalHistory.jsx` exposes diagnoses, clinical notes, prescribed medicines, and PDF downloads to patients. `PatientRecords.jsx` provides the doctor search workflow. `consultationService.js` handles JSON requests and browser blob downloads.
 * Consultation creation derives patient, doctor, and clinic relationships from the appointment rather than trusting client-supplied IDs, and saves the consultation plus appointment completion inside a MongoDB transaction.
 
 ### UI / UX Standards (v1.1)
-* Every form input, select, and textarea has an associated `<label htmlFor>` and, where it aids entry, an example placeholder (e.g. `e.g. MCI-12345`, `e.g. +919876543210`, `Search by patient name, email, phone, or diagnosis/illness (e.g. diabetes)`).
-* The interface is mobile-responsive: headers wrap, tab strips scroll horizontally, the booking grid collapses to a single column below 760px, tables scroll horizontally, and pagination centers on small screens.
-* Large lists render shared `<Pagination />` controls (`Page x of y · n records`) backed by the server-side envelope.
+* Every form input, select, and textarea has an associated `<label htmlFor>` and, where it aids entry, an example placeholder and hint text (e.g. `e.g. MCI-12345`, `e.g. +919876543210`, `Try a name (e.g. Rahul), email, phone, or illness (e.g. diabetes, migraine)`).
+* The interface is mobile-responsive: below 768px both dashboards switch to a **collapsible hamburger menu** (tabs, SOS, and Logout fold into an animated dropdown); the booking grid collapses to a single column, tables scroll horizontally, 16px inputs prevent iOS zoom-on-focus, and pagination centers on small screens.
+* Large lists render shared `<Pagination />` controls (`Page x of y · n records` plus **First / Prev / numbered / Next / Last** buttons) backed by the server-side envelope.
 
 ### Verification Status
 * The frontend production build passes with Vite, and the full ESLint run reports **0 errors / 0 warnings**.
-* Backend integration tests cover patient registration/password hashing/JWT login, inactive-account rejection, duplicate appointment-slot prevention, profile/clinic schedule updates, reschedule conflict handling, **doctor license enforcement + uniqueness, weak-password/phone rejection, the full forgot/reset password cycle (including token reuse), diagnosis-based patient search, the pagination envelope, closed-clinic booking rejection, public doctor profile exposure, and PDF streaming verified down to the `%PDF` magic bytes**. Run them from `backend/` with `npm.cmd test` (or `npm run test` from the root).
-* The backend test suite currently contains 2 suites and **17 passing tests**, including dedicated live-queue unit tests for deduplication, MongoDB hydration, current-patient recovery, and queue cleanup.
+* Backend integration tests cover patient registration/password hashing/JWT login, inactive-account rejection, duplicate appointment-slot prevention, profile/clinic schedule updates, reschedule conflict handling, **doctor license enforcement + uniqueness, weak-password/phone rejection, the full forgot/reset password cycle (including token reuse), diagnosis-based patient search, the pagination envelope, closed-clinic booking rejection, public doctor profile exposure, cross-doctor prescription download authorization (allowed for treating doctors, 403 for strangers), and PDF streaming verified down to the `%PDF` magic bytes**. Run them from `backend/` with `npm.cmd test` (or `npm run test` from the root).
+* The backend test suite currently contains 2 suites and **18 passing tests**, including dedicated live-queue unit tests for deduplication, MongoDB hydration, current-patient recovery, and queue cleanup.
 * Mongoose 9 update operations use `returnDocument: 'after'` instead of the deprecated `new: true` option, so the backend starts without those deprecation warnings.
 
 ### High-Priority Completion Notes
@@ -319,7 +322,7 @@ The GitHub Actions workflow at `.github/workflows/ci-validation.yml` validates t
 
 ## 🔑 Test Accounts & Seed Data
 
-Populate your local database with sample doctors, patients, clinics, appointments, medicines, consultation history, **and bulk mock records (≥1000 per doctor, ≥100 per named test patient)** for exercising pagination, search, and Excel export. Safe to re-run — it deletes and re-creates matching records each time:
+Populate your local database with sample doctors, patients, clinics, appointments, medicines, consultation history, **and bulk mock records (≥1000 per doctor, ≥100 per named test patient)** for exercising pagination, search, and Excel export. Safe to re-run — it deletes and re-creates matching records each time, and **adopts orphaned clinics**: any pre-existing clinic whose owning doctor was replaced by re-seeding is automatically re-pointed at the replacement doctor (matched by specialization), so manually created clinics never break.
 ```bash
 npm run seed
 ```

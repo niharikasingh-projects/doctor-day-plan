@@ -14,8 +14,13 @@ function DoctorProfileModal({ doctorId, onClose }) {
     let isCancelled = false;
 
     const loadProfile = async () => {
+      // Defer the loading-state reset to a microtask so the effect body never
+      // sets state synchronously (react-hooks/set-state-in-effect).
+      await Promise.resolve();
+      if (isCancelled) return;
       setIsLoading(true);
       setError('');
+      setProfile(null);
       try {
         const data = await fetchDoctorPublicProfile(doctorId);
         if (!isCancelled) setProfile(data);
