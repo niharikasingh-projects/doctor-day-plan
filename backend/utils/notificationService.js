@@ -144,7 +144,19 @@ const sendEmail = async ({ to, subject, text, note }) => {
     await transporter.sendMail({ from: FROM_EMAIL, to, subject, text });
     console.log(`📧 Email sent to ${to}${note ? ` (${note})` : ''}: ${subject}`);
   } catch (error) {
-    console.error(`Email delivery failed for ${to}:`, error.message);
+    const isGmailAuthFailure = error.responseCode === 535 || /BadCredentials/i.test(error.message || '');
+    if (isGmailAuthFailure) {
+      console.error(
+        `Email delivery failed for ${to}: Gmail rejected SMTP_USER/SMTP_PASS. Gmail requires a 16-character ` +
+          'App Password (not your normal account password) — enable 2-Step Verification then create one at ' +
+          'https://myaccount.google.com/apppasswords and put it in SMTP_PASS.'
+      );
+    } else {
+      console.error(`Email delivery failed for ${to}:`, error.message);
+    }
+    // Preserve the message in the demo outbox so nothing is silently lost
+    // while SMTP is misconfigured.
+    recordDemoMessage('email', to, subject, text, note ? `${note}; SMTP delivery failed` : 'SMTP delivery failed');
   }
 };
 
@@ -174,11 +186,27 @@ const sendSms = async ({ to, body, note }) => {
     );
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(`Twilio responded ${response.status}: ${detail}`);
+      const error = new Error(`Twilio responded ${response.status}: ${detail}`);
+      error.twilioDetail = detail;
+      throw error;
     }
     console.log(`📱 SMS sent to ${to}`);
   } catch (error) {
-    console.error(`SMS delivery failed for ${to}:`, error.message);
+    const isUnverifiedTrialRecipient = /572002|verified recipient/i.test(error.twilioDetail || error.message || '');
+    if (isUnverifiedTrialRecipient) {
+      console.error(
+        `SMS delivery failed for ${to}: Twilio error 572002. If this number is NOT yet a Verified Caller ID, add ` +
+          'it at https://console.twilio.com/us1/develop/phone-numbers/manage/verified. If it is already verified ' +
+          'and this still fails for an Indian number, Twilio blocks SMS into India from generic/trial numbers due ' +
+          "to TRAI/DLT regulations — that requires an India-registered Sender ID and can't be worked around from a " +
+          'trial account; the message is preserved in the demo outbox below instead.'
+      );
+    } else {
+      console.error(`SMS delivery failed for ${to}:`, error.message);
+    }
+    // Preserve the message in the demo outbox so nothing is silently lost
+    // while Twilio is restricted/misconfigured.
+    recordDemoMessage('sms', to, null, body, note ? `${note}; SMS delivery failed` : 'SMS delivery failed');
   }
 };
 
