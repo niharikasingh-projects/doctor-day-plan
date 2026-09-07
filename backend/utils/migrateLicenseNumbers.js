@@ -2,9 +2,10 @@
 // `doctorProfile.licenseNumber` on pre-existing doctor accounts.
 //
 // Every doctor user missing a license number receives a unique placeholder of
-// the form PENDING-XXXXXX (derived from their ObjectId, matches the schema
-// regex /^[A-Za-z0-9\-/]{5,20}$/). Placeholders must be replaced with the real
-// license number by the doctor via the Profile page (enforced by validators).
+// the form PD-XXXXXX (derived from their ObjectId, matches the schema regex
+// /^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/, e.g. MCI-12345). Placeholders must
+// be replaced with the real license number by the doctor via the Profile page
+// (enforced by validators).
 //
 // Run with: npm run migrate (from the backend/ directory). Safe to re-run —
 // doctors that already have a license number are skipped.
@@ -12,16 +13,16 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const User = require('../models/User');
 
-const LICENSE_REGEX = /^[A-Za-z0-9\-/]{5,20}$/;
+const LICENSE_REGEX = /^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/;
 
-// Builds a unique placeholder license from the user's ObjectId suffix.
+// Builds a unique placeholder license from the user's ObjectId (digits-only
+// suffix so it matches the letters-hyphen-digits format, e.g. "PD-123456").
 const buildPlaceholderLicense = (userId, usedLicenses) => {
-  const suffix = String(userId).slice(-6).toUpperCase();
-  let candidate = `PENDING-${suffix}`;
-  let counter = 1;
+  let numericSuffix = Number.parseInt(String(userId).slice(-6), 16) % 1000000;
+  let candidate = `PD-${String(numericSuffix).padStart(6, '0')}`;
   while (usedLicenses.has(candidate) || !LICENSE_REGEX.test(candidate)) {
-    candidate = `PENDING-${suffix}-${counter}`;
-    counter += 1;
+    numericSuffix = (numericSuffix + 1) % 1000000;
+    candidate = `PD-${String(numericSuffix).padStart(6, '0')}`;
   }
   usedLicenses.add(candidate);
   return candidate;

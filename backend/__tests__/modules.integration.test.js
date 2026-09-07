@@ -45,12 +45,20 @@ afterEach(async () => {
 });
 
 // Helper: spins up a doctor+patient+clinic trio and returns them with a doctor JWT.
+// Generates a license number in the MCI-12345 style (letters-hyphen-digits, max
+// 10 chars) deterministically from the suffix so tests stay readable and unique.
+const licenseNumberFor = (suffix) => {
+  let hash = 0;
+  for (const char of suffix) hash = (hash * 31 + char.charCodeAt(0)) % 100000;
+  return `LIC-${String(hash).padStart(5, '0')}`;
+};
+
 const seedDoctorPatientClinic = async (suffix) => {
   const doctor = await User.create({
     email: `doctor-${suffix}@test.example`,
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: `Doctor ${suffix}`, licenseNumber: `LIC-${suffix}` },
+    doctorProfile: { name: `Doctor ${suffix}`, licenseNumber: licenseNumberFor(suffix) },
   });
   const patient = await User.create({
     email: `patient-${suffix}@test.example`,
@@ -117,7 +125,7 @@ test('enforces unique clinic date and slot bookings', async () => {
     email: 'doctor@test.example',
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: 'Test Doctor', licenseNumber: 'LIC-UNIQ-1' },
+    doctorProfile: { name: 'Test Doctor', licenseNumber: 'LIC-10001' },
   });
   const patient = await User.create({
     email: 'patient2@test.example',
@@ -148,7 +156,7 @@ test('allows an authenticated doctor to update their profile and clinic schedule
   const registration = await request(app).post('/api/auth/register/doctor').send({
     email: 'profile-doctor@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Profile Doctor', specialization: 'General Medicine', licenseNumber: 'LIC-PROFILE-1' },
+    doctorProfile: { name: 'Profile Doctor', specialization: 'General Medicine', licenseNumber: 'LIC-10002' },
   });
   expect(registration.statusCode).toBe(201);
 
@@ -189,7 +197,7 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
     email: 'reschedule-doctor@test.example',
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: 'Reschedule Doctor', licenseNumber: 'LIC-RESCHED-1' },
+    doctorProfile: { name: 'Reschedule Doctor', licenseNumber: 'LIC-10003' },
   });
   const patient = await User.create({
     email: 'reschedule-patient@test.example',
@@ -248,6 +256,20 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
 // diagnosis search, pagination, closed-clinic guard, PDF download).
 // ---------------------------------------------------------------------------
 
+test('verify-license reports valid/invalid based on the licensing authority check', async () => {
+  const valid = await request(app).post('/api/auth/verify-license').send({ licenseNumber: 'MCI-12345' });
+  expect(valid.statusCode).toBe(200);
+  expect(valid.body.valid).toBe(true);
+  expect(valid.body.referenceId).toEqual(expect.any(String));
+
+  const invalid = await request(app).post('/api/auth/verify-license').send({ licenseNumber: 'bad' });
+  expect(invalid.statusCode).toBe(200);
+  expect(invalid.body.valid).toBe(false);
+
+  const missing = await request(app).post('/api/auth/verify-license').send({});
+  expect(missing.statusCode).toBe(400);
+});
+
 test('rejects doctor registration without a license number and enforces uniqueness', async () => {
   const missingLicense = await request(app).post('/api/auth/register/doctor').send({
     email: 'no-license@test.example',
@@ -260,14 +282,14 @@ test('rejects doctor registration without a license number and enforces uniquene
   const first = await request(app).post('/api/auth/register/doctor').send({
     email: 'licensed-one@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Licensed One', licenseNumber: 'LIC-DUP-1' },
+    doctorProfile: { name: 'Licensed One', licenseNumber: 'LIC-10004' },
   });
   expect(first.statusCode).toBe(201);
 
   const duplicate = await request(app).post('/api/auth/register/doctor').send({
     email: 'licensed-two@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Licensed Two', licenseNumber: 'LIC-DUP-1' },
+    doctorProfile: { name: 'Licensed Two', licenseNumber: 'LIC-10004' },
   });
   expect(duplicate.statusCode).toBe(400);
   expect(duplicate.body.error).toMatch(/license/i);
@@ -493,7 +515,7 @@ test('doctor public profile exposes license number to patients', async () => {
     .get(`/api/auth/doctors/${doctor._id}`)
     .set('Authorization', `Bearer ${doctorToken}`);
   expect(response.statusCode).toBe(200);
-  expect(response.body.doctor.licenseNumber).toBe('LIC-public');
+  expect(response.body.doctor.licenseNumber).toBe(doctor.doctorProfile.licenseNumber);
   expect(response.body.doctor.name).toBe('Doctor public');
   expect(response.body.clinics).toHaveLength(1);
 });

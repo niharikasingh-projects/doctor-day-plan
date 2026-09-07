@@ -11,6 +11,7 @@ const {
   isPastDate,
 } = require('../utils/validators');
 const { sendPasswordResetCode, notificationsEnabled } = require('../utils/notificationService');
+const { callLicensingAuthority } = require('../utils/licenseAuthority');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const GENDERS = ['Male', 'Female', 'Other'];
@@ -68,6 +69,24 @@ const registerPatient = async (req, res) => {
   }
 };
 
+// POST /api/auth/verify-license (Public) — checks a medical license number
+// against the (simulated) licensing authority before a doctor can register.
+const verifyLicense = async (req, res) => {
+  try {
+    const { licenseNumber } = req.body;
+
+    if (!licenseNumber || !String(licenseNumber).trim()) {
+      return res.status(400).json({ error: 'licenseNumber is required.' });
+    }
+
+    const result = await callLicensingAuthority(licenseNumber);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('verifyLicense error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 // POST /api/auth/register/doctor (Public) — registers a new doctor account.
 // doctorProfile.licenseNumber is mandatory and must be unique across doctors.
 const registerDoctor = async (req, res) => {
@@ -91,7 +110,12 @@ const registerDoctor = async (req, res) => {
     if (!doctorProfile.licenseNumber || !isValidLicenseNumber(doctorProfile.licenseNumber)) {
       return res
         .status(400)
-        .json({ error: 'A valid medical license number (5-20 letters, digits, "-" or "/") is required for doctors.' });
+        .json({ error: 'A valid medical license number in the format MCI-12345 (max 10 characters) is required for doctors.' });
+    }
+
+    const licenseCheck = await callLicensingAuthority(doctorProfile.licenseNumber);
+    if (!licenseCheck.valid) {
+      return res.status(400).json({ error: `License verification failed: ${licenseCheck.message}` });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -317,7 +341,11 @@ const updateProfile = async (req, res) => {
         if (!isValidLicenseNumber(updates['doctorProfile.licenseNumber'])) {
           return res
             .status(400)
-            .json({ error: 'Please provide a valid medical license number (5-20 letters, digits, "-" or "/").' });
+            .json({ error: 'Please provide a valid medical license number in the format MCI-12345 (max 10 characters).' });
+        }
+        const licenseCheck = await callLicensingAuthority(updates['doctorProfile.licenseNumber']);
+        if (!licenseCheck.valid) {
+          return res.status(400).json({ error: `License verification failed: ${licenseCheck.message}` });
         }
         const licenseOwner = await User.findOne({
           _id: { $ne: req.user.userId },
@@ -413,4 +441,5 @@ module.exports = {
   updateProfile,
   getDoctorPublicProfile,
   getPublicConfig,
+  verifyLicense,
 };

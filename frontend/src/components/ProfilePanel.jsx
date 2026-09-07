@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
-import { getProfile, updateProfile } from '../api/authService';
+import { getProfile, updateProfile, verifyLicenseNumber } from '../api/authService';
+
+const LICENSE_FORMAT_REGEX = /^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/;
 
 function ProfilePanel() {
   const role = localStorage.getItem('role');
   const [profile, setProfile] = useState(null);
+  const [originalLicenseNumber, setOriginalLicenseNumber] = useState('');
+  // Tracks the licensing-authority check: 'idle' | 'checking' | 'valid' | 'invalid'.
+  const [licenseCheck, setLicenseCheck] = useState({ status: 'idle', message: '', checkedValue: '' });
   const [form, setForm] = useState({
     phone: '',
     name: '',
@@ -24,6 +29,7 @@ function ProfilePanel() {
     getProfile().then((user) => {
       const details = role === 'doctor' ? user.doctorProfile : user.patientProfile;
       setProfile(user);
+      setOriginalLicenseNumber(details?.licenseNumber || '');
       setForm({
         phone: user.phone || '',
         name: details?.name || '',
@@ -43,6 +49,41 @@ function ProfilePanel() {
     });
   }, [role]);
 
+  // A license number that hasn't changed from the saved value is already
+  // verified; only a new value needs a fresh licensing-authority check.
+  const licenseChanged = form.licenseNumber.trim() !== originalLicenseNumber;
+  const isLicenseVerified =
+    !licenseChanged ||
+    (licenseCheck.status === 'valid' && licenseCheck.checkedValue === form.licenseNumber.trim());
+
+  const handleVerifyLicense = async () => {
+    const candidate = form.licenseNumber.trim();
+    if (!LICENSE_FORMAT_REGEX.test(candidate)) {
+      setLicenseCheck({
+        status: 'invalid',
+        message: 'License number must match the format MCI-12345 (letters, "-", digits; max 10 characters) before it can be verified.',
+        checkedValue: candidate,
+      });
+      return;
+    }
+
+    setLicenseCheck({ status: 'checking', message: '', checkedValue: candidate });
+    try {
+      const result = await verifyLicenseNumber(candidate);
+      setLicenseCheck({
+        status: result.valid ? 'valid' : 'invalid',
+        message: result.message,
+        checkedValue: candidate,
+      });
+    } catch (err) {
+      setLicenseCheck({
+        status: 'invalid',
+        message: err.response?.data?.error || 'Unable to verify the license number. Please try again.',
+        checkedValue: candidate,
+      });
+    }
+  };
+
   const save = async (event) => {
     event.preventDefault();
     setStatus('');
@@ -53,9 +94,14 @@ function ProfilePanel() {
       setStatus('Please enter a valid phone number (7-15 digits, optional leading +).');
       return;
     }
-    if (role === 'doctor' && !/^[A-Za-z0-9\-/]{5,20}$/.test(form.licenseNumber.trim())) {
+    if (role === 'doctor' && !LICENSE_FORMAT_REGEX.test(form.licenseNumber.trim())) {
       setIsError(true);
-      setStatus('Medical license number must be 5-20 characters (letters, digits, "-" or "/").');
+      setStatus('Medical license number must match the format MCI-12345 (letters, "-", digits; max 10 characters).');
+      return;
+    }
+    if (role === 'doctor' && !isLicenseVerified) {
+      setIsError(true);
+      setStatus('Please verify the new medical license number with the licensing authority before saving.');
       return;
     }
 
@@ -75,6 +121,7 @@ function ProfilePanel() {
         : { name: form.name.trim(), dob: form.dob || profile?.patientProfile?.dob, gender: form.gender };
       await updateProfile(payload);
       setStatus('Profile updated successfully.');
+      if (role === 'doctor') setOriginalLicenseNumber(form.licenseNumber.trim());
     } catch (error) {
       setIsError(true);
       setStatus(error.response?.data?.error || 'Unable to update profile.');
@@ -168,14 +215,40 @@ function ProfilePanel() {
             <label htmlFor="profileLicense" className="block text-sm font-medium text-gray-700 mb-1">
               Medical license number <span className="text-red-500">*</span>
             </label>
-            <input
-              id="profileLicense"
-              value={form.licenseNumber}
-              onChange={(e) => setForm({ ...form, licenseNumber: e.target.value })}
-              placeholder="e.g. MCI-12345"
-              className="w-full rounded-lg border px-3 py-2"
-              required
-            />
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                id="profileLicense"
+                value={form.licenseNumber}
+                onChange={(e) => {
+                  setForm({ ...form, licenseNumber: e.target.value });
+                  setLicenseCheck({ status: 'idle', message: '', checkedValue: '' });
+                }}
+                placeholder="e.g. MCI-12345"
+                aria-describedby="profileLicenseHint"
+                className="w-full rounded-lg border px-3 py-2"
+                required
+              />
+              <button
+                type="button"
+                onClick={handleVerifyLicense}
+                disabled={licenseCheck.status === 'checking' || !form.licenseNumber.trim() || !licenseChanged}
+                className="shrink-0 rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {licenseCheck.status === 'checking' ? 'Verifying...' : 'Verify License'}
+              </button>
+            </div>
+            <p id="profileLicenseHint" className="text-xs text-gray-400 mt-1">
+              Format: MCI-12345 (letters, "-", digits; max 10 characters). Changing this number requires re-verification before saving.
+            </p>
+            {!licenseChanged && (
+              <p className="text-xs text-gray-400 mt-1">Current license number is already verified.</p>
+            )}
+            {licenseChanged && licenseCheck.status === 'valid' && licenseCheck.checkedValue === form.licenseNumber.trim() && (
+              <p className="text-xs text-green-700 mt-1">✓ {licenseCheck.message}</p>
+            )}
+            {licenseChanged && licenseCheck.status === 'invalid' && licenseCheck.checkedValue === form.licenseNumber.trim() && (
+              <p className="text-xs text-red-600 mt-1">✗ {licenseCheck.message}</p>
+            )}
           </div>
           <div>
             <label htmlFor="profileSpecialization" className="block text-sm font-medium text-gray-700 mb-1">
@@ -256,7 +329,7 @@ function ProfilePanel() {
             />
           </div>
         </>}
-        <button className="primary-action w-fit" type="submit">Save profile</button>
+        <button className="primary-action w-fit disabled:opacity-50" type="submit" disabled={role === 'doctor' && !isLicenseVerified}>Save profile</button>
         {status && <p className={`text-sm ${isError ? 'text-red-600' : 'text-green-700'}`}>{status}</p>}
       </form>
     </section>

@@ -9,6 +9,7 @@ const {
   updateProfile,
   getDoctorPublicProfile,
   getPublicConfig,
+  verifyLicense,
 } = require('../controllers/authController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
@@ -16,6 +17,7 @@ const router = express.Router();
 
 router.post('/register', registerPatient);
 router.post('/register/doctor', registerDoctor);
+router.post('/verify-license', verifyLicense);
 router.post('/login', loginUser);
 router.get('/config', getPublicConfig);
 router.post('/forgot-password', forgotPassword);
