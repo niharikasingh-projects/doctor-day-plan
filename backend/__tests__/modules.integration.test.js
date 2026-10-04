@@ -45,12 +45,20 @@ afterEach(async () => {
 });
 
 // Helper: spins up a doctor+patient+clinic trio and returns them with a doctor JWT.
+// Generates a license number in the MCI-12345 style (letters-hyphen-digits, max
+// 10 chars) deterministically from the suffix so tests stay readable and unique.
+const licenseNumberFor = (suffix) => {
+  let hash = 0;
+  for (const char of suffix) hash = (hash * 31 + char.charCodeAt(0)) % 100000;
+  return `LIC-${String(hash).padStart(5, '0')}`;
+};
+
 const seedDoctorPatientClinic = async (suffix) => {
   const doctor = await User.create({
     email: `doctor-${suffix}@test.example`,
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: `Doctor ${suffix}`, licenseNumber: `LIC-${suffix}` },
+    doctorProfile: { name: `Doctor ${suffix}`, licenseNumber: licenseNumberFor(suffix) },
   });
   const patient = await User.create({
     email: `patient-${suffix}@test.example`,
@@ -71,6 +79,33 @@ const seedDoctorPatientClinic = async (suffix) => {
   });
   return { doctor, patient, clinic, doctorToken: login.body.token };
 };
+
+test('creates consultations on standalone MongoDB and completes the appointment', async () => {
+  const { doctor, patient, clinic, doctorToken } = await seedDoctorPatientClinic('consultation');
+  const appointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: patient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-17',
+    slotTime: '09:00',
+    status: 'confirmed',
+  });
+
+  const response = await request(app)
+    .post('/api/consultations')
+    .set('Authorization', `Bearer ${doctorToken}`)
+    .send({ appointmentId: appointment._id, diagnosis: 'Seasonal allergy' });
+
+  expect(response.statusCode).toBe(201);
+  expect(response.body.appointmentId).toBe(String(appointment._id));
+  expect((await Appointment.findById(appointment._id)).status).toBe('completed');
+
+  const duplicate = await request(app)
+    .post('/api/consultations')
+    .set('Authorization', `Bearer ${doctorToken}`)
+    .send({ appointmentId: appointment._id, diagnosis: 'Seasonal allergy' });
+  expect(duplicate.statusCode).toBe(400);
+});
 
 test('registers a patient, hashes password, and logs in with JWT', async () => {
   const registration = await request(app).post('/api/auth/register').send({
@@ -117,7 +152,7 @@ test('enforces unique clinic date and slot bookings', async () => {
     email: 'doctor@test.example',
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: 'Test Doctor', licenseNumber: 'LIC-UNIQ-1' },
+    doctorProfile: { name: 'Test Doctor', licenseNumber: 'LIC-10001' },
   });
   const patient = await User.create({
     email: 'patient2@test.example',
@@ -148,7 +183,7 @@ test('allows an authenticated doctor to update their profile and clinic schedule
   const registration = await request(app).post('/api/auth/register/doctor').send({
     email: 'profile-doctor@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Profile Doctor', specialization: 'General Medicine', licenseNumber: 'LIC-PROFILE-1' },
+    doctorProfile: { name: 'Profile Doctor', specialization: 'General Medicine', licenseNumber: 'LIC-10002' },
   });
   expect(registration.statusCode).toBe(201);
 
@@ -189,7 +224,7 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
     email: 'reschedule-doctor@test.example',
     password: 'Doctor@123',
     role: 'doctor',
-    doctorProfile: { name: 'Reschedule Doctor', licenseNumber: 'LIC-RESCHED-1' },
+    doctorProfile: { name: 'Reschedule Doctor', licenseNumber: 'LIC-10003' },
   });
   const patient = await User.create({
     email: 'reschedule-patient@test.example',
@@ -234,6 +269,7 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
     .send({ appointmentDate: futureDate, slotTime: '10:00' });
   expect(rejected.statusCode).toBe(400);
 
+  const logBeforeReschedule = readNotificationsLog().length;
   const moved = await request(app)
     .patch(`/api/appointments/${appointment._id}/reschedule`)
     .set('Authorization', `Bearer ${token}`)
@@ -241,12 +277,30 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
   expect(moved.statusCode).toBe(200);
   expect(moved.body.slotTime).toBe('09:30');
   expect(moved.body.status).toBe('pending');
+  const rescheduleNotification = readNotificationsLog().slice(logBeforeReschedule);
+  expect(rescheduleNotification).toContain('rescheduled');
+  expect(rescheduleNotification).toContain('09:30');
+  expect(rescheduleNotification).toContain('Reschedule Patient');
 });
 
 // ---------------------------------------------------------------------------
 // Guardrail tests for the v1.1 feature set (forgot password, license rule,
 // diagnosis search, pagination, closed-clinic guard, PDF download).
 // ---------------------------------------------------------------------------
+
+test('verify-license reports valid/invalid based on the licensing authority check', async () => {
+  const valid = await request(app).post('/api/auth/verify-license').send({ licenseNumber: 'MCI-12345' });
+  expect(valid.statusCode).toBe(200);
+  expect(valid.body.valid).toBe(true);
+  expect(valid.body.referenceId).toEqual(expect.any(String));
+
+  const invalid = await request(app).post('/api/auth/verify-license').send({ licenseNumber: 'bad' });
+  expect(invalid.statusCode).toBe(200);
+  expect(invalid.body.valid).toBe(false);
+
+  const missing = await request(app).post('/api/auth/verify-license').send({});
+  expect(missing.statusCode).toBe(400);
+});
 
 test('rejects doctor registration without a license number and enforces uniqueness', async () => {
   const missingLicense = await request(app).post('/api/auth/register/doctor').send({
@@ -260,14 +314,14 @@ test('rejects doctor registration without a license number and enforces uniquene
   const first = await request(app).post('/api/auth/register/doctor').send({
     email: 'licensed-one@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Licensed One', licenseNumber: 'LIC-DUP-1' },
+    doctorProfile: { name: 'Licensed One', licenseNumber: 'LIC-10004' },
   });
   expect(first.statusCode).toBe(201);
 
   const duplicate = await request(app).post('/api/auth/register/doctor').send({
     email: 'licensed-two@test.example',
     password: 'Doctor@123',
-    doctorProfile: { name: 'Licensed Two', licenseNumber: 'LIC-DUP-1' },
+    doctorProfile: { name: 'Licensed Two', licenseNumber: 'LIC-10004' },
   });
   expect(duplicate.statusCode).toBe(400);
   expect(duplicate.body.error).toMatch(/license/i);
@@ -366,14 +420,72 @@ test('doctor patient search matches consultation diagnosis text', async () => {
     medicines: [{ name: 'Cetirizine 10', dosage: '0-0-1', durationDays: 5 }],
   });
 
+  const secondPatient = await User.create({
+    email: 'patient-diag-second@test.example',
+    password: 'Patient@123',
+    phone: '+919800009998',
+    role: 'patient',
+    patientProfile: { name: 'Patient Zed', dob: '1991-01-01', gender: 'Other' },
+  });
+  const secondAppointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: secondPatient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-11',
+    slotTime: '10:00',
+    status: 'completed',
+  });
+  await Consultation.create({
+    appointmentId: secondAppointment._id,
+    patientId: secondPatient._id,
+    doctorId: doctor._id,
+    clinicId: clinic._id,
+    diagnosis: 'Migraine with aura',
+  });
+
+  const unrelatedPatient = await User.create({
+    email: 'patient-diag-unrelated@test.example',
+    password: 'Patient@123',
+    phone: '+919800009997',
+    role: 'patient',
+    patientProfile: { name: 'Patient Unrelated', dob: '1992-01-01', gender: 'Other' },
+  });
+  const unrelatedAppointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: unrelatedPatient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-12',
+    slotTime: '11:00',
+    status: 'completed',
+  });
+  await Consultation.create({
+    appointmentId: unrelatedAppointment._id,
+    patientId: unrelatedPatient._id,
+    doctorId: doctor._id,
+    clinicId: clinic._id,
+    diagnosis: 'Type 2 Diabetes Mellitus',
+  });
+
   const response = await request(app)
-    .get('/api/consultations/search?query=migraine')
+    .get('/api/consultations/search?query=migraine&limit=1')
     .set('Authorization', `Bearer ${doctorToken}`);
   expect(response.statusCode).toBe(200);
   expect(response.body.data).toHaveLength(1);
-  expect(response.body.data[0]._id).toBe(String(patient._id));
-  expect(response.body.data[0].matchedDiagnoses).toContain('Chronic Migraine');
-  expect(response.body.pagination.total).toBe(1);
+  expect([String(patient._id), String(secondPatient._id)]).toContain(response.body.data[0]._id);
+  expect(['Chronic Migraine', 'Migraine with aura']).toContain(response.body.data[0].matchedDiagnoses[0]);
+  expect(response.body.pagination.total).toBe(2);
+
+  const historyExport = await request(app)
+    .get('/api/consultations/search/history?query=migraine&all=true')
+    .set('Authorization', `Bearer ${doctorToken}`);
+  expect(historyExport.statusCode).toBe(200);
+  expect(historyExport.body.data).toHaveLength(2);
+  expect(historyExport.body.data.map((entry) => String(entry.patientId._id)).sort()).toEqual(
+    [String(patient._id), String(secondPatient._id)].sort()
+  );
+  expect(historyExport.body.data.map((entry) => entry.diagnosis)).toEqual(
+    expect.arrayContaining(['Chronic Migraine', 'Migraine with aura'])
+  );
 
   const noMatch = await request(app)
     .get('/api/consultations/search?query=zzz-no-such-illness')
@@ -493,7 +605,7 @@ test('doctor public profile exposes license number to patients', async () => {
     .get(`/api/auth/doctors/${doctor._id}`)
     .set('Authorization', `Bearer ${doctorToken}`);
   expect(response.statusCode).toBe(200);
-  expect(response.body.doctor.licenseNumber).toBe('LIC-public');
+  expect(response.body.doctor.licenseNumber).toBe(doctor.doctorProfile.licenseNumber);
   expect(response.body.doctor.name).toBe('Doctor public');
   expect(response.body.clinics).toHaveLength(1);
 });

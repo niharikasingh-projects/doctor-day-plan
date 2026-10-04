@@ -36,6 +36,16 @@ export const registerDoctor = async (payload) => {
   return data;
 };
 
+/**
+ * Verifies a medical license number against the licensing authority.
+ * @param {string} licenseNumber
+ * @returns {Promise<{ valid: boolean, message: string, authority: string, referenceId?: string }>}
+ */
+export const verifyLicenseNumber = async (licenseNumber) => {
+  const { data } = await axiosInstance.post('/auth/verify-license', { licenseNumber });
+  return data;
+};
+
 export const getProfile = async () => {
   const { data } = await axiosInstance.get('/auth/profile');
   return data;

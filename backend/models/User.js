@@ -13,7 +13,10 @@ const doctorProfileSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Medical license number is required for doctors.'],
       trim: true,
-      match: [/^[A-Za-z0-9\-/]{5,20}$/, 'Please provide a valid medical license number (5-20 letters, digits, "-" or "/").'],
+      match: [
+        /^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/,
+        'Please provide a valid medical license number in the format MCI-12345 (max 10 characters).',
+      ],
     },
     specialization: {
       type: String,

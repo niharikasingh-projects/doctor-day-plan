@@ -89,14 +89,22 @@ function MedicalHistory({ patientId, title = 'Medical History' }) {
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
       {!patientId ? (
         <p className="text-sm text-gray-500">Select a patient to view medical history.</p>
-      ) : isLoading ? (
+      ) : isLoading && history.length === 0 ? (
         <p className="text-sm text-gray-500">Loading medical history...</p>
       ) : history.length === 0 ? (
         <p className="text-sm text-gray-500">No previous consultations found.</p>
       ) : (
-        <div className="space-y-4">
-          {history.map((entry) => (
-            <article key={entry._id} className="border border-gray-200 rounded-lg p-4">
+        <>
+          <Pagination
+            pagination={pagination}
+            onPageChange={handlePageChange}
+            isLoading={isLoading}
+            className="mb-4"
+          />
+          {isLoading && <span className="sr-only" role="status">Loading medical history page...</span>}
+          <div className="space-y-4" aria-busy={isLoading}>
+            {history.map((entry) => (
+              <article key={entry._id} className="border border-gray-200 rounded-lg p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-medium text-gray-900">{entry.diagnosis}</h3>
@@ -148,11 +156,12 @@ function MedicalHistory({ patientId, title = 'Medical History' }) {
                   </div>
                 </div>
               )}
-            </article>
-          ))}
-        </div>
+              </article>
+            ))}
+          </div>
+          <Pagination pagination={pagination} onPageChange={handlePageChange} isLoading={isLoading} />
+        </>
       )}
-      <Pagination pagination={pagination} onPageChange={handlePageChange} isLoading={isLoading} />
     </section>
   );
 }

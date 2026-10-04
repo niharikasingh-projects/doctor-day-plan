@@ -281,6 +281,10 @@ textarea {
 	margin-top: 16px;
 }
 
+.pagination-bar-inline {
+	margin-top: 0;
+}
+
 .pagination-button {
 	border: 1px solid var(--line);
 	border-radius: 8px;

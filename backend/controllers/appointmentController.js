@@ -5,6 +5,7 @@ const { getIO } = require('../sockets/ioInstance');
 const { addPatientToQueue, removeAppointmentsFromQueues } = require('../sockets/queueHandler');
 const {
   notifyPatientBooked,
+  notifyPatientRescheduled,
   notifyPatientStatusChanged,
   notifyDoctorPatientCancelled,
   notifyPatientsEmergency,
@@ -256,6 +257,13 @@ const rescheduleAppointment = async (req, res) => {
     appointment.status = 'pending';
     appointment.checkedInAt = null;
     await appointment.save();
+
+    const [clinic, patient, doctor] = await Promise.all([
+      Clinic.findById(appointment.clinicId).select('name address'),
+      User.findById(appointment.patientId).select('email phone patientProfile'),
+      User.findById(appointment.doctorId).select('email phone doctorProfile'),
+    ]);
+    await notifyPatientRescheduled({ patient, appointment, clinic, doctor });
 
     const io = getIO();
     if (io) {

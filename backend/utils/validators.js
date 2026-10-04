@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const PHONE_REGEX = /^\+?[0-9]{7,15}$/;
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
-const LICENSE_REGEX = /^[A-Za-z0-9\-/]{5,20}$/;
+const LICENSE_REGEX = /^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/;
 
 const isValidEmail = (value) => typeof value === 'string' && EMAIL_REGEX.test(value.trim());
 

@@ -7,9 +7,40 @@ const { isValidObjectId, getPagination, buildPaginationMeta } = require('../util
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const buildPatientSearchFilter = async (query, doctorId) => {
+  const searchPattern = new RegExp(escapeRegex(query), 'i');
+  const patientIds = await Appointment.distinct('patientId', { doctorId });
+  const diagnosisMatches = await Consultation.aggregate([
+    {
+      $match: {
+        doctorId: new mongoose.Types.ObjectId(String(doctorId)),
+        diagnosis: searchPattern,
+      },
+    },
+    { $group: { _id: '$patientId', matchedDiagnoses: { $addToSet: '$diagnosis' } } },
+  ]);
+  const diagnosisMatchMap = new Map(
+    diagnosisMatches.map((entry) => [String(entry._id), entry.matchedDiagnoses])
+  );
+  const matchedIds = [...new Set([...patientIds.map(String), ...diagnosisMatchMap.keys()])];
+
+  return {
+    filter: {
+      _id: { $in: matchedIds },
+      role: 'patient',
+      $or: [
+        { email: searchPattern },
+        { phone: searchPattern },
+        { 'patientProfile.name': searchPattern },
+        { _id: { $in: [...diagnosisMatchMap.keys()] } },
+      ],
+    },
+    diagnosisMatchMap,
+  };
+};
+
 // POST /api/consultations (Doctor only) — records a diagnosis and completes the appointment.
 const createConsultation = async (req, res) => {
-  let session;
   try {
     const { appointmentId, diagnosis, clinicalNotes, medicines } = req.body;
 
@@ -43,44 +74,47 @@ const createConsultation = async (req, res) => {
       }
     }
 
-    session = await mongoose.startSession();
-    let savedConsultation;
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      const notFoundError = new Error('Appointment not found.');
+      notFoundError.statusCode = 404;
+      throw notFoundError;
+    }
 
-    await session.withTransaction(async () => {
-      const appointment = await Appointment.findById(appointmentId).session(session);
-      if (!appointment) {
-        const notFoundError = new Error('Appointment not found.');
-        notFoundError.statusCode = 404;
-        throw notFoundError;
-      }
+    if (String(appointment.doctorId) !== String(req.user.userId)) {
+      const forbiddenError = new Error('You do not have permission to create a consultation for this appointment.');
+      forbiddenError.statusCode = 403;
+      throw forbiddenError;
+    }
 
-      if (String(appointment.doctorId) !== String(req.user.userId)) {
-        const forbiddenError = new Error('You do not have permission to create a consultation for this appointment.');
-        forbiddenError.statusCode = 403;
-        throw forbiddenError;
-      }
+    const existingConsultation = await Consultation.findOne({ appointmentId });
+    if (existingConsultation) {
+      const duplicateError = new Error('A consultation already exists for this appointment.');
+      duplicateError.statusCode = 400;
+      throw duplicateError;
+    }
 
-      const existingConsultation = await Consultation.findOne({ appointmentId }).session(session);
-      if (existingConsultation) {
-        const duplicateError = new Error('A consultation already exists for this appointment.');
-        duplicateError.statusCode = 400;
-        throw duplicateError;
-      }
-
-      const consultation = new Consultation({
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-        clinicId: appointment.clinicId,
-        diagnosis,
-        clinicalNotes,
-        medicines,
-      });
-
-      savedConsultation = await consultation.save({ session });
-      appointment.status = 'completed';
-      await appointment.save({ session });
+    const savedConsultation = await Consultation.create({
+      appointmentId: appointment._id,
+      patientId: appointment.patientId,
+      doctorId: appointment.doctorId,
+      clinicId: appointment.clinicId,
+      diagnosis,
+      clinicalNotes,
+      medicines,
     });
+
+    try {
+      appointment.status = 'completed';
+      await appointment.save();
+    } catch (error) {
+      try {
+        await Consultation.deleteOne({ _id: savedConsultation._id });
+      } catch (rollbackError) {
+        console.error('createConsultation rollback error:', rollbackError);
+      }
+      throw error;
+    }
 
     return res.status(201).json(savedConsultation);
   } catch (error) {
@@ -88,11 +122,10 @@ const createConsultation = async (req, res) => {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ error: error.message });
     }
-    return res.status(500).json({ error: 'Internal Server Error' });
-  } finally {
-    if (session) {
-      await session.endSession();
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'A consultation already exists for this appointment.' });
     }
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -107,38 +140,7 @@ const searchPatients = async (req, res) => {
       return res.status(400).json({ error: 'query must contain at least 2 characters.' });
     }
 
-    const searchPattern = new RegExp(escapeRegex(query), 'i');
-    const patientIds = await Appointment.distinct('patientId', { doctorId: req.user.userId });
-
-    // Patients whose past consultations with this doctor match the diagnosis text.
-    const diagnosisMatches = await Consultation.aggregate([
-      {
-        $match: {
-          doctorId: new mongoose.Types.ObjectId(String(req.user.userId)),
-          diagnosis: searchPattern,
-        },
-      },
-      { $group: { _id: '$patientId', matchedDiagnoses: { $addToSet: '$diagnosis' } } },
-    ]);
-    const diagnosisMatchMap = new Map(
-      diagnosisMatches.map((entry) => [String(entry._id), entry.matchedDiagnoses])
-    );
-
-    const matchedIds = [...new Set([...patientIds.map(String), ...diagnosisMatchMap.keys()])];
-    if (matchedIds.length === 0) {
-      return res.status(200).json({ data: [], pagination: buildPaginationMeta(0, 1, 10) });
-    }
-
-    const filter = {
-      _id: { $in: matchedIds },
-      role: 'patient',
-      $or: [
-        { email: searchPattern },
-        { phone: searchPattern },
-        { 'patientProfile.name': searchPattern },
-        { _id: { $in: [...diagnosisMatchMap.keys()] } },
-      ],
-    };
+    const { filter, diagnosisMatchMap } = await buildPatientSearchFilter(query, req.user.userId);
 
     const { page, limit, skip } = getPagination(req.query, 10);
     const [total, patients] = await Promise.all([
@@ -158,6 +160,41 @@ const searchPatients = async (req, res) => {
     return res.status(200).json({ data, pagination: buildPaginationMeta(total, page, limit) });
   } catch (error) {
     console.error('searchPatients error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// GET /api/consultations/search/history?query=...&all=true (Doctor only) —
+// exports histories for every patient matching the doctor’s current search.
+const exportSearchHistory = async (req, res) => {
+  try {
+    const query = String(req.query.query || '').trim();
+    if (query.length < 2) {
+      return res.status(400).json({ error: 'query must contain at least 2 characters.' });
+    }
+
+    const { filter } = await buildPatientSearchFilter(query, req.user.userId);
+    const { page, limit, skip } = getPagination({ ...req.query, all: 'true' }, 10);
+    const matchedPatients = await User.find(filter).select('_id').sort({ 'patientProfile.name': 1 }).limit(5000);
+    const matchedPatientIds = matchedPatients.map((patient) => patient._id);
+    const consultationFilter = { patientId: { $in: matchedPatientIds } };
+    const [total, consultations] = await Promise.all([
+      Consultation.countDocuments(consultationFilter),
+      Consultation.find(consultationFilter)
+        .populate('patientId', 'email phone patientProfile')
+        .populate('clinicId', 'name address')
+        .populate('doctorId', 'email doctorProfile')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+
+    return res.status(200).json({
+      data: consultations,
+      pagination: buildPaginationMeta(total, page, limit),
+    });
+  } catch (error) {
+    console.error('exportSearchHistory error:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
@@ -243,4 +280,4 @@ const downloadPrescription = async (req, res) => {
   }
 };
 
-module.exports = { createConsultation, searchPatients, getHistory, downloadPrescription };
+module.exports = { createConsultation, searchPatients, exportSearchHistory, getHistory, downloadPrescription };

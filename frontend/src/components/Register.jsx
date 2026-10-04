@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { register, registerDoctor } from '../api/authService';
+import { register, registerDoctor, verifyLicenseNumber } from '../api/authService';
 
 function Register() {
   const navigate = useNavigate();
@@ -17,6 +17,8 @@ function Register() {
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Tracks the licensing-authority check for the doctor tab: 'idle' | 'checking' | 'valid' | 'invalid'.
+  const [licenseCheck, setLicenseCheck] = useState({ status: 'idle', message: '', checkedValue: '' });
 
   // Switching Patient/Doctor starts the form fresh — no leaked field values
   // (e.g. a license number typed on the doctor tab) and no stale error messages.
@@ -34,19 +36,59 @@ function Register() {
       licenseNumber: '',
     });
     setError('');
+    setLicenseCheck({ status: 'idle', message: '', checkedValue: '' });
   };
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    // Any edit to the license number invalidates the previous verification.
+    if (name === 'licenseNumber') {
+      setLicenseCheck({ status: 'idle', message: '', checkedValue: '' });
+    }
   };
+
+  const handleVerifyLicense = async () => {
+    const candidate = formData.licenseNumber.trim();
+    if (!/^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/.test(candidate)) {
+      setLicenseCheck({
+        status: 'invalid',
+        message: 'License number must match the format MCI-12345 (letters, "-", digits; max 10 characters) before it can be verified.',
+        checkedValue: candidate,
+      });
+      return;
+    }
+
+    setLicenseCheck({ status: 'checking', message: '', checkedValue: candidate });
+    try {
+      const result = await verifyLicenseNumber(candidate);
+      setLicenseCheck({
+        status: result.valid ? 'valid' : 'invalid',
+        message: result.message,
+        checkedValue: candidate,
+      });
+    } catch (err) {
+      setLicenseCheck({
+        status: 'invalid',
+        message: err.response?.data?.error || 'Unable to verify the license number. Please try again.',
+        checkedValue: candidate,
+      });
+    }
+  };
+
+  const isLicenseVerified =
+    licenseCheck.status === 'valid' && licenseCheck.checkedValue === formData.licenseNumber.trim();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
 
-    if (role === 'doctor' && !/^[A-Za-z0-9\-/]{5,20}$/.test(formData.licenseNumber.trim())) {
-      setError('Medical license number must be 5-20 characters (letters, digits, "-" or "/").');
+    if (role === 'doctor' && !/^(?=.{5,10}$)[A-Za-z]{2,5}-[0-9]{2,7}$/.test(formData.licenseNumber.trim())) {
+      setError('Medical license number must match the format MCI-12345 (letters, "-", digits; max 10 characters).');
+      return;
+    }
+    if (role === 'doctor' && !isLicenseVerified) {
+      setError('Please verify the medical license number with the licensing authority before registering.');
       return;
     }
     if (!/^(?=.*[A-Za-z])(?=.*[0-9]).{8,}$/.test(formData.password)) {
@@ -195,16 +237,36 @@ function Register() {
                 <label htmlFor="licenseNumber" className="block text-sm font-medium text-gray-700 mb-1">
                   Medical License Number <span className="text-red-500">*</span>
                 </label>
-                <input
-                  id="licenseNumber"
-                  name="licenseNumber"
-                  type="text"
-                  required
-                  placeholder="e.g. MCI-12345"
-                  value={formData.licenseNumber}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    id="licenseNumber"
+                    name="licenseNumber"
+                    type="text"
+                    required
+                    placeholder="e.g. MCI-12345"
+                    aria-describedby="licenseNumberHint"
+                    value={formData.licenseNumber}
+                    onChange={handleChange}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifyLicense}
+                    disabled={licenseCheck.status === 'checking' || !formData.licenseNumber.trim()}
+                    className="shrink-0 rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {licenseCheck.status === 'checking' ? 'Verifying...' : 'Verify License'}
+                  </button>
+                </div>
+                <p id="licenseNumberHint" className="text-xs text-gray-400 mt-1">
+                  Format: MCI-12345 (letters, "-", digits; max 10 characters), then click Verify License.
+                </p>
+                {licenseCheck.status === 'valid' && licenseCheck.checkedValue === formData.licenseNumber.trim() && (
+                  <p className="text-xs text-green-700 mt-1">✓ {licenseCheck.message}</p>
+                )}
+                {licenseCheck.status === 'invalid' && licenseCheck.checkedValue === formData.licenseNumber.trim() && (
+                  <p className="text-xs text-red-600 mt-1">✗ {licenseCheck.message}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="specialization" className="block text-sm font-medium text-gray-700 mb-1">
@@ -260,7 +322,7 @@ function Register() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (role === 'doctor' && !isLicenseVerified)}
             className="primary-action w-full disabled:opacity-50"
           >
             {isSubmitting ? 'Registering...' : 'Register'}
