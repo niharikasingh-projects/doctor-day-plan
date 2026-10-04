@@ -105,6 +105,14 @@ const MOCK_INSTRUCTIONS = [
 const randomItem = (list) => list[Math.floor(Math.random() * list.length)];
 const randomInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
 
+const diagnosesForPatient = (patient) => {
+  let hash = 0;
+  for (const character of patient.email) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return [0, 5, 10].map((offset) => MOCK_DIAGNOSES[(hash + offset) % MOCK_DIAGNOSES.length]);
+};
+
 // Builds the list of HH:mm slot strings a rule range produces for a given slot duration.
 const slotsForRule = (rule, slotDurationMins) => {
   const [startHour, startMinute] = rule.startTime.split(':').map(Number);
@@ -469,7 +477,7 @@ const seed = async () => {
           patientId: patient._id,
           doctorId: doctorGrid.doctor._id,
           clinicId: doctorGrid.clinic._id,
-          diagnosis: randomItem(MOCK_DIAGNOSES),
+          diagnosis: randomItem(diagnosesForPatient(patient)),
           clinicalNotes: 'Auto-generated mock consultation for seed data.',
           medicines: Array.from({ length: randomInt(1, 3) }, () => ({
             name: randomItem(medicinePool),

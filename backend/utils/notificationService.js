@@ -266,6 +266,26 @@ const notifyPatientBooked = async ({ patient, appointment, clinic, doctor }) => 
   });
 };
 
+const notifyPatientRescheduled = async ({ patient, appointment, clinic, doctor }) => {
+  const { dateLabel, clinicName, clinicAddress, doctorName } = describeAppointment(appointment, {
+    clinic,
+    doctor,
+  });
+  const patientName = patient?.patientProfile?.name || 'Patient';
+  await notify({
+    email: patient?.email,
+    phone: patient?.phone,
+    subject: 'Appointment rescheduled — DoctorDayPlan',
+    text:
+      `Hi ${patientName},\n\n` +
+      `Your appointment with ${doctorName} at ${clinicName}${clinicAddress} has been rescheduled to ${dateLabel} ` +
+      `at ${appointment.slotTime}. It is awaiting the doctor's confirmation.\n\n— DoctorDayPlan`,
+    sms:
+      `DoctorDayPlan: Your appointment with ${doctorName} at ${clinicName} has been rescheduled to ${dateLabel} ` +
+      `${appointment.slotTime}, pending confirmation.`,
+  });
+};
+
 const notifyPatientStatusChanged = async ({ patient, appointment, clinic, doctor, status, reason }) => {
   const { dateLabel, clinicName, clinicAddress, doctorName } = describeAppointment(appointment, {
     clinic,
@@ -356,6 +376,7 @@ const sendPasswordResetCode = async ({ email, token, expiresInMinutes }) => {
 module.exports = {
   notify,
   notifyPatientBooked,
+  notifyPatientRescheduled,
   notifyPatientStatusChanged,
   notifyDoctorPatientCancelled,
   notifyPatientsEmergency,

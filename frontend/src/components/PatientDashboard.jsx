@@ -74,6 +74,7 @@ function PatientDashboard() {
   const [disabledSlots, setDisabledSlots] = useState([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState('');
+  const [isBooking, setIsBooking] = useState(false);
   const [status, setStatus] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeQueueAppointment, setActiveQueueAppointment] = useState(null);
@@ -230,7 +231,7 @@ function PatientDashboard() {
   };
 
   const handleBook = async () => {
-    if (!selectedSlot) return;
+    if (!selectedSlot || isBooking) return;
     const clinic = clinics.find((item) => item._id === selectedClinicId);
     if (!clinic) return;
     if (clinic.status !== 'active') {
@@ -238,6 +239,7 @@ function PatientDashboard() {
       return;
     }
 
+    setIsBooking(true);
     try {
       await bookAppointment({
         clinicId: clinic._id,
@@ -250,6 +252,8 @@ function PatientDashboard() {
       setRefreshKey((prev) => prev + 1);
     } catch (err) {
       setStatus(err.response?.data?.error || 'Unable to book appointment.');
+    } finally {
+      setIsBooking(false);
     }
   };
 
@@ -469,12 +473,13 @@ function PatientDashboard() {
                     />
 
                     {selectedSlot && (
-                        <button
+                      <button
                         type="button"
                         onClick={handleBook}
-                          className="primary-action mt-4"
+                        disabled={isBooking}
+                        className="primary-action mt-4 disabled:opacity-50"
                       >
-                        Book {selectedSlot}
+                        {isBooking ? 'Booking...' : `Book ${selectedSlot}`}
                       </button>
                     )}
                   </>

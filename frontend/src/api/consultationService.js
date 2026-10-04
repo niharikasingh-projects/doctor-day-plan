@@ -31,6 +31,14 @@ export const searchPatients = async (query, { page = 1, limit = 10 } = {}) => {
   return data;
 };
 
+/** Fetches consultation history for every patient matching a doctor’s search. */
+export const fetchSearchHistory = async (query) => {
+  const { data } = await axiosInstance.get('/consultations/search/history', {
+    params: { query, all: true },
+  });
+  return data;
+};
+
 /**
  * Streams the PDFKit prescription for a consultation and triggers a browser save.
  * Surfaces server-side JSON errors instead of silently saving them as a broken PDF,

@@ -80,6 +80,33 @@ const seedDoctorPatientClinic = async (suffix) => {
   return { doctor, patient, clinic, doctorToken: login.body.token };
 };
 
+test('creates consultations on standalone MongoDB and completes the appointment', async () => {
+  const { doctor, patient, clinic, doctorToken } = await seedDoctorPatientClinic('consultation');
+  const appointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: patient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-17',
+    slotTime: '09:00',
+    status: 'confirmed',
+  });
+
+  const response = await request(app)
+    .post('/api/consultations')
+    .set('Authorization', `Bearer ${doctorToken}`)
+    .send({ appointmentId: appointment._id, diagnosis: 'Seasonal allergy' });
+
+  expect(response.statusCode).toBe(201);
+  expect(response.body.appointmentId).toBe(String(appointment._id));
+  expect((await Appointment.findById(appointment._id)).status).toBe('completed');
+
+  const duplicate = await request(app)
+    .post('/api/consultations')
+    .set('Authorization', `Bearer ${doctorToken}`)
+    .send({ appointmentId: appointment._id, diagnosis: 'Seasonal allergy' });
+  expect(duplicate.statusCode).toBe(400);
+});
+
 test('registers a patient, hashes password, and logs in with JWT', async () => {
   const registration = await request(app).post('/api/auth/register').send({
     email: 'patient@test.example',
@@ -242,6 +269,7 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
     .send({ appointmentDate: futureDate, slotTime: '10:00' });
   expect(rejected.statusCode).toBe(400);
 
+  const logBeforeReschedule = readNotificationsLog().length;
   const moved = await request(app)
     .patch(`/api/appointments/${appointment._id}/reschedule`)
     .set('Authorization', `Bearer ${token}`)
@@ -249,6 +277,10 @@ test('reschedules an appointment and rejects a conflicting active slot', async (
   expect(moved.statusCode).toBe(200);
   expect(moved.body.slotTime).toBe('09:30');
   expect(moved.body.status).toBe('pending');
+  const rescheduleNotification = readNotificationsLog().slice(logBeforeReschedule);
+  expect(rescheduleNotification).toContain('rescheduled');
+  expect(rescheduleNotification).toContain('09:30');
+  expect(rescheduleNotification).toContain('Reschedule Patient');
 });
 
 // ---------------------------------------------------------------------------
@@ -388,14 +420,72 @@ test('doctor patient search matches consultation diagnosis text', async () => {
     medicines: [{ name: 'Cetirizine 10', dosage: '0-0-1', durationDays: 5 }],
   });
 
+  const secondPatient = await User.create({
+    email: 'patient-diag-second@test.example',
+    password: 'Patient@123',
+    phone: '+919800009998',
+    role: 'patient',
+    patientProfile: { name: 'Patient Zed', dob: '1991-01-01', gender: 'Other' },
+  });
+  const secondAppointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: secondPatient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-11',
+    slotTime: '10:00',
+    status: 'completed',
+  });
+  await Consultation.create({
+    appointmentId: secondAppointment._id,
+    patientId: secondPatient._id,
+    doctorId: doctor._id,
+    clinicId: clinic._id,
+    diagnosis: 'Migraine with aura',
+  });
+
+  const unrelatedPatient = await User.create({
+    email: 'patient-diag-unrelated@test.example',
+    password: 'Patient@123',
+    phone: '+919800009997',
+    role: 'patient',
+    patientProfile: { name: 'Patient Unrelated', dob: '1992-01-01', gender: 'Other' },
+  });
+  const unrelatedAppointment = await Appointment.create({
+    doctorId: doctor._id,
+    patientId: unrelatedPatient._id,
+    clinicId: clinic._id,
+    appointmentDate: '2026-08-12',
+    slotTime: '11:00',
+    status: 'completed',
+  });
+  await Consultation.create({
+    appointmentId: unrelatedAppointment._id,
+    patientId: unrelatedPatient._id,
+    doctorId: doctor._id,
+    clinicId: clinic._id,
+    diagnosis: 'Type 2 Diabetes Mellitus',
+  });
+
   const response = await request(app)
-    .get('/api/consultations/search?query=migraine')
+    .get('/api/consultations/search?query=migraine&limit=1')
     .set('Authorization', `Bearer ${doctorToken}`);
   expect(response.statusCode).toBe(200);
   expect(response.body.data).toHaveLength(1);
-  expect(response.body.data[0]._id).toBe(String(patient._id));
-  expect(response.body.data[0].matchedDiagnoses).toContain('Chronic Migraine');
-  expect(response.body.pagination.total).toBe(1);
+  expect([String(patient._id), String(secondPatient._id)]).toContain(response.body.data[0]._id);
+  expect(['Chronic Migraine', 'Migraine with aura']).toContain(response.body.data[0].matchedDiagnoses[0]);
+  expect(response.body.pagination.total).toBe(2);
+
+  const historyExport = await request(app)
+    .get('/api/consultations/search/history?query=migraine&all=true')
+    .set('Authorization', `Bearer ${doctorToken}`);
+  expect(historyExport.statusCode).toBe(200);
+  expect(historyExport.body.data).toHaveLength(2);
+  expect(historyExport.body.data.map((entry) => String(entry.patientId._id)).sort()).toEqual(
+    [String(patient._id), String(secondPatient._id)].sort()
+  );
+  expect(historyExport.body.data.map((entry) => entry.diagnosis)).toEqual(
+    expect.arrayContaining(['Chronic Migraine', 'Migraine with aura'])
+  );
 
   const noMatch = await request(app)
     .get('/api/consultations/search?query=zzz-no-such-illness')

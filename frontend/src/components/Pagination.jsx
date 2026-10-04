@@ -1,6 +1,6 @@
 // Reusable server-side pagination controls. Expects the backend envelope shape:
 // pagination = { total, page, limit, totalPages }.
-function Pagination({ pagination, onPageChange, isLoading = false }) {
+function Pagination({ pagination, onPageChange, isLoading = false, className = '' }) {
   if (!pagination || pagination.totalPages <= 1) {
     return null;
   }
@@ -13,7 +13,7 @@ function Pagination({ pagination, onPageChange, isLoading = false }) {
   }
 
   return (
-    <nav className="pagination-bar" aria-label="Pagination">
+    <nav className={`pagination-bar ${className}`} aria-label="Pagination">
       <span className="text-xs text-gray-500">
         Page {page} of {totalPages} · {total} records
       </span>

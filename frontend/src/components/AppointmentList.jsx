@@ -66,7 +66,10 @@ function AppointmentCard({
   onStartConsultation,
   onViewDoctorProfile,
   onCancel,
+  statusUpdate,
 }) {
+  const isUpdatingStatus = statusUpdate?.id === appointment._id;
+
   return (
     <div className="bg-white rounded-xl shadow p-4 flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -112,16 +115,18 @@ function AppointmentCard({
             <button
               type="button"
               onClick={() => onStatusUpdate(appointment._id, 'confirmed')}
+              disabled={isUpdatingStatus}
               className="rounded-lg bg-green-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-green-700"
             >
-              Accept
+              {isUpdatingStatus && statusUpdate.status === 'confirmed' ? 'Accepting...' : 'Accept'}
             </button>
             <button
               type="button"
               onClick={() => onStatusUpdate(appointment._id, 'rejected')}
+              disabled={isUpdatingStatus}
               className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-red-700"
             >
-              Reject
+              {isUpdatingStatus && statusUpdate.status === 'rejected' ? 'Rejecting...' : 'Reject'}
             </button>
             <button
               type="button"
@@ -224,6 +229,7 @@ function CancelAppointmentDialog({ appointment, onClose, onConfirm, isSubmitting
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               className="rounded-lg px-4 py-2 font-medium text-gray-600 hover:bg-gray-100"
             >
               Keep appointment
@@ -416,6 +422,7 @@ function AppointmentList({ role, onRefresh }) {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState(null);  const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [statusUpdate, setStatusUpdate] = useState(null);
   const [error, setError] = useState('');
   const [consultationAppointment, setConsultationAppointment] = useState(null);
   const [collapsedDates, setCollapsedDates] = useState({});
@@ -482,11 +489,14 @@ function AppointmentList({ role, onRefresh }) {
   };
 
   const handleStatusUpdate = async (id, status, cancelReason) => {
+    setStatusUpdate({ id, status });
     try {
       await updateAppointmentStatus(id, status, cancelReason);
       refresh();
     } catch (err) {
       setError(err.response?.data?.error || 'Unable to update appointment status.');
+    } finally {
+      setStatusUpdate(null);
     }
   };
 
@@ -575,6 +585,7 @@ function AppointmentList({ role, onRefresh }) {
             onStartConsultation: setConsultationAppointment,
             onViewDoctorProfile: setProfileDoctorId,
             onCancel: setCancellingAppointment,
+            statusUpdate,
           }}
         />
       ) : (
@@ -590,6 +601,7 @@ function AppointmentList({ role, onRefresh }) {
             onStartConsultation: setConsultationAppointment,
             onViewDoctorProfile: setProfileDoctorId,
             onCancel: setCancellingAppointment,
+            statusUpdate,
           }}
         />
       )}

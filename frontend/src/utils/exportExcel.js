@@ -42,6 +42,9 @@ export const appointmentToRow = (appointment) => ({
 
 /** Flattens one consultation document into an export-ready row. */
 export const consultationToRow = (entry) => ({
+  Patient: entry.patientId?.patientProfile?.name || '',
+  'Patient Email': entry.patientId?.email || '',
+  'Patient Phone': entry.patientId?.phone || '',
   Date: new Date(entry.createdAt).toLocaleDateString(),
   Diagnosis: entry.diagnosis,
   Doctor: entry.doctorId?.doctorProfile?.name ? `Dr. ${entry.doctorId.doctorProfile.name}` : '',
