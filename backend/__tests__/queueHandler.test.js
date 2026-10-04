@@ -27,6 +27,43 @@ test('does not add the same checked-in appointment to a queue twice', () => {
   expect(getOrCreateQueue('dedupe-clinic').waitingQueue).toHaveLength(1);
 });
 
+test('skip moves the selected patient to the end and broadcasts the updated queue', () => {
+  const queue = getOrCreateQueue('skip-clinic');
+  queue.waitingQueue = [
+    { appointmentId: 'appointment-1', patientName: 'Patient One' },
+    { appointmentId: 'appointment-2', patientName: 'Patient Two' },
+    { appointmentId: 'appointment-3', patientName: 'Patient Three' },
+  ];
+
+  const socketHandlers = {};
+  const broadcast = { emit: jest.fn() };
+  const io = {
+    on: jest.fn(),
+    to: jest.fn(() => broadcast),
+  };
+  const socket = {
+    on: jest.fn((event, handler) => {
+      socketHandlers[event] = handler;
+    }),
+  };
+  const { initQueueHandler } = require('../sockets/queueHandler');
+  initQueueHandler(io);
+  io.on.mock.calls[0][1](socket);
+
+  socketHandlers.skipPatient({ clinicId: 'skip-clinic', appointmentId: 'appointment-1' });
+
+  expect(queue.waitingQueue.map((entry) => entry.appointmentId)).toEqual([
+    'appointment-2',
+    'appointment-3',
+    'appointment-1',
+  ]);
+  expect(io.to).toHaveBeenCalledWith('skip-clinic');
+  expect(broadcast.emit).toHaveBeenCalledWith(
+    'queueUpdated',
+    expect.objectContaining({ waitingQueueArray: queue.waitingQueue })
+  );
+});
+
 test('hydrates current and waiting patients from checked-in appointments', async () => {
   const io = createIO();
   const appointments = [

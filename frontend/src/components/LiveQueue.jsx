@@ -8,6 +8,7 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
     currentPatient,
     estimatedWaitTime,
     isConnecting,
+    isSocketReady,
     joinClinicQueue,
     triggerNextPatient,
     triggerSkipPatient,
@@ -15,11 +16,11 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
   } = useLiveQueue();
 
   useEffect(() => {
-    if (clinicId) {
+    if (clinicId && isSocketReady && !isConnecting) {
       joinClinicQueue(clinicId, avgConsultationMins);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clinicId]);
+  }, [clinicId, isSocketReady, isConnecting]);
 
   if (!clinicId) {
     return null;
@@ -30,8 +31,8 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
       <div className="bg-white rounded-xl shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium text-gray-900">Live Queue</h2>
-          <span className={`text-xs font-medium ${isConnecting ? 'text-gray-400' : 'text-green-600'}`}>
-            {isConnecting ? 'Connecting…' : 'Live'}
+          <span className={`text-xs font-medium ${isConnecting || !isSocketReady ? 'text-gray-400' : 'text-green-600'}`}>
+            {isConnecting || !isSocketReady ? 'Connecting…' : 'Live'}
           </span>
         </div>
 
@@ -47,6 +48,7 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
               <button
                 type="button"
                 onClick={() => finishConsultation(clinicId, avgConsultationMins)}
+                disabled={isConnecting || !isSocketReady}
                 className="rounded-lg bg-gray-700 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800"
               >
                 Finish
@@ -55,7 +57,7 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
             <button
               type="button"
               onClick={() => triggerNextPatient(clinicId, avgConsultationMins)}
-              disabled={liveQueue.length === 0}
+              disabled={isConnecting || !isSocketReady || liveQueue.length === 0}
               className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Call Next Patient
@@ -100,8 +102,8 @@ function LiveQueue({ clinicId, role, avgConsultationMins = 15, myAppointmentId }
     <div className="bg-white rounded-xl shadow p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-medium text-gray-900">Live Queue Status</h2>
-        <span className={`text-xs font-medium ${isConnecting ? 'text-gray-400' : 'text-green-600'}`}>
-          {isConnecting ? 'Connecting…' : 'Live'}
+        <span className={`text-xs font-medium ${isConnecting || !isSocketReady ? 'text-gray-400' : 'text-green-600'}`}>
+          {isConnecting || !isSocketReady ? 'Connecting…' : 'Live'}
         </span>
       </div>
 
