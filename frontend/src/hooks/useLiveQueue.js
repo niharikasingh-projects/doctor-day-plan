@@ -29,6 +29,7 @@ export function useLiveQueue() {
     currentPatient,
     estimatedWaitTime,
     isConnecting,
+    isSocketReady: Boolean(socket),
     joinClinicQueue,
     triggerNextPatient,
     triggerSkipPatient,
