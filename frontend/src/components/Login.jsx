@@ -20,6 +20,9 @@ function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [issuedResetToken, setIssuedResetToken] = useState('');
   const [notificationsOn, setNotificationsOn] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -157,16 +160,38 @@ function Login() {
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                   Password
                 </label>
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowLoginPassword((current) => !current)}
+                    className="absolute inset-y-0 right-3 flex items-center text-gray-600 hover:text-gray-800"
+                  >
+                    {showLoginPassword ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M3 3l18 18" />
+                        <path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+                        <path d="M9.88 5.36A10.94 10.94 0 0 1 12 5c6.5 0 10 7 10 7a17.3 17.3 0 0 1-5.26 6.08" />
+                        <path d="M6.61 6.61A16.8 16.8 0 0 0 2 12s3.5 7 10 7a10.8 10.8 0 0 0 5.39-1.61" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <button
@@ -262,17 +287,39 @@ function Login() {
                 <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-1">
                   New password
                 </label>
-                <input
-                  id="newPassword"
-                  type="password"
-                  required
-                  minLength={8}
-                  placeholder="Min 8 chars, with a letter and a number"
-                  autoComplete="new-password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    id="newPassword"
+                    type={showNewPassword ? 'text' : 'password'}
+                    required
+                    minLength={8}
+                    placeholder="Min 8 chars, with a letter and a number"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                    onClick={() => setShowNewPassword((current) => !current)}
+                    className="absolute inset-y-0 right-3 flex items-center text-gray-600 hover:text-gray-800"
+                  >
+                    {showNewPassword ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M3 3l18 18" />
+                        <path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+                        <path d="M9.88 5.36A10.94 10.94 0 0 1 12 5c6.5 0 10 7 10 7a17.3 17.3 0 0 1-5.26 6.08" />
+                        <path d="M6.61 6.61A16.8 16.8 0 0 0 2 12s3.5 7 10 7a10.8 10.8 0 0 0 5.39-1.61" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 {newPassword.length > 0 && (
                   <ul className="mt-2 space-y-1" aria-live="polite">
                     {PASSWORD_RULES.map((rule) => {
@@ -290,17 +337,39 @@ function Login() {
                 <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
                   Confirm new password
                 </label>
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  required
-                  minLength={8}
-                  placeholder="Re-enter the new password"
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    minLength={8}
+                    placeholder="Re-enter the new password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                    onClick={() => setShowConfirmPassword((current) => !current)}
+                    className="absolute inset-y-0 right-3 flex items-center text-gray-600 hover:text-gray-800"
+                  >
+                    {showConfirmPassword ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        <path d="M3 3l18 18" />
+                        <path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+                        <path d="M9.88 5.36A10.94 10.94 0 0 1 12 5c6.5 0 10 7 10 7a17.3 17.3 0 0 1-5.26 6.08" />
+                        <path d="M6.61 6.61A16.8 16.8 0 0 0 2 12s3.5 7 10 7a10.8 10.8 0 0 0 5.39-1.61" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 {confirmPassword.length > 0 && (
                   <p className={`text-xs mt-1 ${passwordsMatch ? 'text-green-700' : 'text-red-600'}`} aria-live="polite">
                     {passwordsMatch ? '✓ Passwords match' : '✗ Passwords do not match'}
