@@ -147,7 +147,8 @@ function Login() {
                 </label>
                 <input
                   id="email"
-                  type="email"
+                  type="text"
+                  inputMode="email"
                   required
                   placeholder="e.g. you@example.com"
                   autoComplete="email"
